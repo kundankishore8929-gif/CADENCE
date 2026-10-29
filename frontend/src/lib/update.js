@@ -11,8 +11,8 @@
 
 import { MOBILE } from './mobile.js'
 import { APK_VARIANTS, APK_VARIANT } from './apk-variant.js'
-
-const REPO = 'DuarteSantos8/openGym'
+// This fork's releases, not openGym's: a CADENCE phone must never be offered openGym's APK.
+import { REPO } from '../gym/brand.js'
 const LATEST_URL = `https://api.github.com/repos/${REPO}/releases/latest`
 export const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`
 

@@ -1,5 +1,9 @@
 # Third-party notices
 
+CADENCE — Copyright (C) 2026 Kundan Kishore, for the changes and additions made in this fork
+(everything under `frontend/src/gym/`, `api/gym/` and the edits listed in the git history).
+CADENCE is a modified version of openGym and is licensed under the same **GNU AGPL v3.0**.
+
 openGym — Copyright (C) 2026 Duarte Santos.
 openGym's own code is licensed under the **GNU AGPL v3.0** (see [LICENSE](LICENSE)).
 

@@ -25,6 +25,7 @@
 // renders the PDF.
 import { t, getLang, RTL_LANGS, dateLocale } from './i18n-core.js'
 import { MOBILE, printHtml } from './mobile.js'
+import { BRAND } from '../gym/brand.js'
 
 export const esc = str => String(str == null ? '' : str)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -43,11 +44,11 @@ export function probeMarks(probe) {
   return { s: id => mark('s', id), e: id => mark('e', id), h: id => mark('h', id) }
 }
 
-// The app icon (frontend/resources/icon.svg), drawn small: the lime dumbbell on its dark tile.
-export const LOGO_SVG = '<svg class="logo-mark" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#0c0e12"/>'
-  + '<g fill="#a3e635"><rect x="80" y="242" width="352" height="28"/><rect x="80" y="199" width="36" height="114"/>'
-  + '<rect x="131" y="169" width="47" height="174"/><rect x="334" y="169" width="47" height="174"/>'
-  + '<rect x="396" y="199" width="36" height="114"/></g></svg>'
+// The app icon (frontend/resources/cadence/icon.svg), drawn small: the lime C over CADENCE on its dark tile.
+export const LOGO_SVG = '<svg class="logo-mark" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#0b0d0a"/>'
+  + '<g font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif" text-anchor="middle">'
+  + '<text x="256" y="300" fill="#c8f135" font-weight="900" font-size="300" letter-spacing="-8">C</text>'
+  + '<text x="256" y="372" fill="#f3f5ef" font-weight="800" font-size="44" letter-spacing="6">CADENCE</text></g></svg>'
 
 // "Page {0} of {1}" in the reader's language, as the content of an @page margin box: the text
 // around the two numbers comes from the translation, the numbers from CSS counters.
@@ -70,7 +71,7 @@ export const PRINT_CSS = `
   @page {
     size: auto;
     margin: 15mm 14mm 17mm;
-    @bottom-left { content: "opengym.ch"; font: 7.5pt/1 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #9aa0ad; }
+    @bottom-left { content: "${BRAND.name}"; font: 7.5pt/1 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #9aa0ad; }
     @bottom-right { font: 7.5pt/1 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #9aa0ad; }
   }
   :root {
@@ -148,13 +149,13 @@ export function printShell({ title, kicker = '', facts = [], owner = '', date, b
 ${css}</style></head>
 <body><div class="doc">
   <header class="mast keep">
-    <div class="mast-top"><div class="brand">${LOGO_SVG}<span>openGym</span></div><div class="mast-meta">${meta}</div></div>
+    <div class="mast-top"><div class="brand">${LOGO_SVG}<span>${BRAND.name}</span></div><div class="mast-meta">${meta}</div></div>
     ${kicker ? `<div class="kicker">${esc(kicker)}</div>` : ''}
     <h1>${esc(title)}</h1>
     ${factLine ? `<div class="facts">${factLine}</div>` : ''}
   </header>
   ${body}
-  <div class="end keep">${esc(t('Made with openGym'))} · opengym.ch</div>
+  <div class="end keep">${esc(t('Made with openGym'))}</div>
 </div></body></html>`
 }
 
@@ -171,7 +172,7 @@ export function paperFor(locale) {
 export function printOptions() {
   let locale = ''
   try { locale = navigator.language || '' } catch (e) { /* */ }
-  return { paper: paperFor(locale), footer: { left: 'opengym.ch', page: t('Page {0} of {1}') } }
+  return { paper: paperFor(locale), footer: { left: BRAND.name, page: t('Page {0} of {1}') } }
 }
 
 // The web: a hidden iframe and the browser's own print dialog (→ Save as PDF), so we never
@@ -204,7 +205,7 @@ function printInFrame(html) {
  * suggested PDF file; Android refuses a job without one.
  */
 export function printDocument(html, name) {
-  if (MOBILE) return printHtml(html, name || 'openGym', printOptions()).catch(() => { /* dismissed */ })
+  if (MOBILE) return printHtml(html, name || BRAND.name, printOptions()).catch(() => { /* dismissed */ })
   printInFrame(html)
   return Promise.resolve()
 }

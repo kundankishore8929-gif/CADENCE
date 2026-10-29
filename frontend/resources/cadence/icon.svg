@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 512 512">
+  <!-- CADENCE app icon: a lime C over the word CADENCE, on the brand's near-black. The source for
+       the PWA icons (public/icon-180.png, icon-512.png), rendered with Inter. resources/icon.svg is
+       still openGym's dumbbell: scripts/app-icons.mjs draws the iOS icon variants from its
+       rectangles, so it changes with the store build. Everything stays inside the centre 80 %,
+       so the maskable icon keeps it whole on round and squircle masks. -->
+  <rect width="512" height="512" fill="#0b0d0a"/>
+  <g font-family="Inter, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="256" y="300" fill="#c8f135" font-weight="900" font-size="300" letter-spacing="-8">C</text>
+    <text x="256" y="372" fill="#f3f5ef" font-weight="800" font-size="44" letter-spacing="6">CADENCE</text>
+  </g>
+</svg>
