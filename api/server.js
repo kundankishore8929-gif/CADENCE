@@ -217,6 +217,30 @@ function forClient(S) {
   const { _unstamped, _prior, ...rest } = S;
   return rest;
 }
+// CADENCE (gym/routes.js): a change the server makes to someone's state on a trainer's behalf, a
+// programme put into a member's plan. Written exactly as PUT /api/data writes a writer that read
+// the current revision and does not stamp its own changes (an API planner): stampPut stamps what
+// changed at the server's time, the revision moves, and every device of the member merges it in
+// on its next pull instead of overwriting it. `change` edits a copy in place; false = nothing to write.
+function writeStateFor(uid, change) {
+  const cur = readStateStrict(uid);
+  if (cur === UNREADABLE) throw new HttpError(503, 'state unreadable');
+  const next = JSON.parse(JSON.stringify(forClient(cur) || {}));
+  if (change(next) === false) return null;
+  delete next.active;
+  stampPut(cur, next, { overRead: true, stamped: false, report: {} });
+  const curRev = cur?._rev || 0;
+  next._rev = curRev + 1;
+  next._wids = [...(Array.isArray(cur?._wids) ? cur._wids : []), ...(cur?._wid ? [cur._wid] : [])]
+    .filter(x => typeof x === 'string').slice(-WID_KEEP);
+  next._wid = crypto.randomBytes(8).toString('hex');
+  atomicWrite(stateFile(uid), JSON.stringify(next));
+  stateCache.delete(uid);
+  if (MEDIA_ON) {
+    try { MEDIA.noteState(uid, next); } catch (e) { console.error('media noteState', e); }
+  }
+  return next;
+}
 // An entry is an object a reader can dereference, and `records` is every entry of a stored
 // list. PUT /api/data drops the rest on the way in — a null workout, a routine that is a
 // number — and refuses a list that is not an array at all, but a file written before it did
@@ -2917,7 +2941,7 @@ const routes = {
   ...coachRoutes({ json, readBody, readSession, requireAdmin }),
 
   /* ---------- CADENCE: trainers and the members who share with them (gym/routes.js) ---------- */
-  ...gymRoutes({ json, readBody, readSession, requireAdmin, audit, users: () => db.users, readState, records, dataDir: DATA, atomicWrite }),
+  ...gymRoutes({ json, readBody, readSession, requireAdmin, audit, users: () => db.users, readState, records, dataDir: DATA, atomicWrite, writeStateFor }),
 
   /* ---------- photos & videos ---------- */
   // Absent, not refusing, when MEDIA_UPLOADS=0: a 404 is what a server from before the feature

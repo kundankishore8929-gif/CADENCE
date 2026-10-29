@@ -3389,6 +3389,53 @@ paths:
         '200': { description: Removed. Audited. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { description: 'Not your client (`not-client`).' }
+  /api/gym/programme:
+    post:
+      tags: [gym]
+      operationId: gymProgramme
+      summary: "Trainer: put a programme into a client's plan"
+      description: >-
+        Copies the named routines from the trainer's own plan (as the server has it) into the
+        client's plan with new ids, marked `assignedBy`, and makes the chosen weekdays the client's
+        weekly plan (their own routines stay, unscheduled; a rotation gives way). Replaces the
+        trainer's previous programme for that client. Written like any synced edit, so the client's
+        devices merge it in. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, routines, days]
+              properties:
+                id: { type: string, description: The client. }
+                routines: { type: array, items: { type: string }, description: "The trainer's own routine ids, in order (at most 14)." }
+                days: { type: object, description: 'Weekday ("0" = Sunday … "6") → some of those routine ids.' }
+                start: { type: string, format: date, description: The first day the programme counts from. Defaults to today. }
+      responses:
+        '200': { description: 'The programme: start, weekdays and a snapshot of each routine''s exercises and targets.' }
+        '400': { description: 'A routine not in your plan (`unknown-routine`), none picked (`no-routines`), more than 14 (`too-many`) or no day chosen (`no-days`).' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'Not your client (`not-client`).' }
+  /api/gym/programme/remove:
+    post:
+      tags: [gym]
+      operationId: gymProgrammeRemove
+      summary: "Trainer: take a programme out of a client's plan"
+      description: The programme's routines and their weekdays leave the client's plan. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+      responses:
+        '200': { description: '`removed` says whether there was one.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'Not your client (`not-client`).' }
   /api/gym/trainers:
     get:
       tags: [gym]

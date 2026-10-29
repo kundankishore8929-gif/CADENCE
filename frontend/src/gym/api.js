@@ -20,6 +20,8 @@ export const getClient = id => api('/api/gym/client?id=' + encodeURIComponent(id
 export const removeClient = id => post('/api/gym/client/remove', { id })
 export const listTrainers = () => api('/api/gym/trainers')
 export const setTrainer = (id, trainer) => post('/api/gym/trainer', { id, trainer })
+export const assignProgramme = (id, routines, days, start) => post('/api/gym/programme', { id, routines, days, start })
+export const removeProgramme = id => post('/api/gym/programme/remove', { id })
 
 // What the server answers for a refused link, in words.
 export function linkError(e, code) {

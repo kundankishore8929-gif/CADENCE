@@ -3,18 +3,25 @@
  *
  *   { v: 1,
  *     trainers: [{ id, code, since }],             // id = the user's id; code = what members type
- *     links:    [{ member, trainer, since }] }     // since = when the member said yes (consent)
+ *     links:    [{ member, trainer, since }],      // since = when the member said yes (consent)
+ *     programmes: [{ member, trainer, start, assignedAt, week, routines }] }   // M2, one per member
  *
  * A member shares with one trainer at a time. Only the member creates a link (by typing the
  * trainer's code and agreeing); the member or the trainer can end it, and ending a trainer's
  * role ends every link to them. Nothing here touches a member's own training data.
+ *
+ * A programme is what the trainer assigned (programme.js puts the routines into the member's own
+ * plan): the start day, the weekdays and a snapshot of each routine's exercises and targets, so
+ * the trainer can tell later what was asked even if the member's copy changes.
  */
 
 export const CODE_RE = /^[A-Z]{1,8}\d{2,3}$/;
 
 export function emptyGym() {
-  return { v: 1, trainers: [], links: [] };
+  return { v: 1, trainers: [], links: [], programmes: [] };
 }
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A document read from disk made safe to use: anything that is not the shape above is dropped. */
 export function normalize(doc) {
@@ -30,6 +37,12 @@ export function normalize(doc) {
     if (l && str(l.member) && str(l.trainer) && l.member !== l.trainer
       && g.trainers.some(t => t.id === l.trainer) && !g.links.some(x => x.member === l.member)) {
       g.links.push({ member: l.member, trainer: l.trainer, since: str(l.since) ? l.since : null });
+    }
+  }
+  for (const p of Array.isArray(doc.programmes) ? doc.programmes : []) {
+    if (p && g.links.some(l => l.member === p.member && l.trainer === p.trainer) && !g.programmes.some(x => x.member === p.member)
+      && typeof p.start === 'string' && ISO_DAY.test(p.start) && p.week && typeof p.week === 'object' && Array.isArray(p.routines)) {
+      g.programmes.push({ member: p.member, trainer: p.trainer, start: p.start, assignedAt: str(p.assignedAt) ? p.assignedAt : null, week: p.week, routines: p.routines });
     }
   }
   return g;
@@ -54,7 +67,21 @@ export const trainerOf = (g, userId) => g.trainers.find(t => t.id === userId) ||
 export const trainerByCode = (g, code) => g.trainers.find(t => t.code === cleanCode(code)) || null;
 export const linkOf = (g, memberId) => g.links.find(l => l.member === memberId) || null;
 export const clientsOf = (g, trainerId) => g.links.filter(l => l.trainer === trainerId);
+export const programmeOf = (g, memberId) => g.programmes.find(p => p.member === memberId) || null;
 
+/** Records the programme a trainer assigned to a linked client, replacing the one before. */
+export function setProgramme(g, rec) {
+  g.programmes = g.programmes.filter(p => p.member !== rec.member);
+  g.programmes.push(rec);
+  return rec;
+}
+
+/** Forgets a member's programme. Returns the record that went, or null. */
+export function dropProgramme(g, memberId) {
+  const had = programmeOf(g, memberId);
+  if (had) g.programmes = g.programmes.filter(p => p !== had);
+  return had;
+}
 /** What a member typed, as a code: capitals, no spaces. */
 export function cleanCode(code) {
   return typeof code === 'string' ? code.replace(/\s+/g, '').toUpperCase().slice(0, 12) : '';
@@ -74,6 +101,7 @@ export function dropTrainer(g, userId) {
   const before = g.links.length;
   g.trainers = g.trainers.filter(t => t.id !== userId);
   g.links = g.links.filter(l => l.trainer !== userId);
+  g.programmes = g.programmes.filter(p => p.trainer !== userId);
   return before - g.links.length;
 }
 
@@ -96,22 +124,23 @@ export function link(g, memberId, code, now = new Date()) {
 /** The member stops sharing. Returns the link that ended, or null if there was none. */
 export function unlink(g, memberId) {
   const had = linkOf(g, memberId);
-  if (had) g.links = g.links.filter(l => l !== had);
+  if (had) { g.links = g.links.filter(l => l !== had); dropProgramme(g, memberId); }
   return had;
 }
 
 /** The trainer lets a client go. True when that member was theirs. */
 export function removeClient(g, trainerId, memberId) {
   const had = g.links.find(l => l.trainer === trainerId && l.member === memberId);
-  if (had) g.links = g.links.filter(l => l !== had);
+  if (had) { g.links = g.links.filter(l => l !== had); dropProgramme(g, memberId); }
   return !!had;
 }
 
 /** Drops trainers and links whose accounts no longer exist. True when anything changed. */
 export function prune(g, userIds) {
   const live = new Set(userIds);
-  const t0 = g.trainers.length, l0 = g.links.length;
+  const t0 = g.trainers.length, l0 = g.links.length, p0 = g.programmes.length;
   g.trainers = g.trainers.filter(t => live.has(t.id));
   g.links = g.links.filter(l => live.has(l.member) && live.has(l.trainer) && g.trainers.some(t => t.id === l.trainer));
-  return g.trainers.length !== t0 || g.links.length !== l0;
+  g.programmes = g.programmes.filter(p => g.links.some(l => l.member === p.member && l.trainer === p.trainer));
+  return g.trainers.length !== t0 || g.links.length !== l0 || g.programmes.length !== p0;
 }

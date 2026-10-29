@@ -9,11 +9,15 @@
  *   - a member chooses a trainer by code and has to say yes to sharing (`consent: true`);
  *   - a trainer reads only members who share with them, and only their training: workouts,
  *     body weight, measurements, routine names. Never photos, videos or notes (stripped below),
- *     and nothing at all once the member stops sharing.
+ *     and nothing at all once the member stops sharing;
+ *   - a trainer puts a programme into a client's own plan (M2, programme.js). It is written by the
+ *     server's state writer (`writeStateFor`), stamped like any edit, so the member's devices
+ *     merge it in on their next pull. When the sharing ends the member keeps the routines.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import * as G from './store.js';
+import { buildProgramme, applyProgramme, removeProgramme, releaseProgramme } from './programme.js';
 
 // What a trainer never gets from a member's workouts and measurements, at any depth: photos and
 // videos (`media`), the member's own notes, and the sync bookkeeping (`_ts`, `_f`, …).
@@ -61,7 +65,15 @@ export function clientDetail(S, records) {
   };
 }
 
-export function gymRoutes({ json, readBody, readSession, requireAdmin, audit, users, readState, records, dataDir, atomicWrite }) {
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const PROGRAMME_ERROR = {
+  'no-routines': 'pick at least one routine',
+  'too-many': 'at most 14 routines',
+  'unknown-routine': 'a routine is not in your plan (yet): sync and try again',
+  'no-days': 'put at least one routine on a day',
+};
+
+export function gymRoutes({ json, readBody, readSession, requireAdmin, audit, users, readState, records, dataDir, atomicWrite, writeStateFor }) {
   const file = path.join(dataDir, 'gym.json');
   let gym = null;
   const load = () => {
@@ -82,6 +94,9 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, audit, us
     return u;
   };
   const trainerView = (t, g) => t && { id: t.id, name: userById(t.id)?.name || '', code: t.code, since: t.since, clients: G.clientsOf(g, t.id).length };
+  // A sharing that ended: the member keeps the trainer's routines and days, as their own now.
+  const release = (memberId, trainerId) => writeStateFor(memberId, S => releaseProgramme(S, trainerId) > 0);
+  const programmeView = p => p && { start: p.start, assignedAt: p.assignedAt, week: p.week, routines: p.routines };
 
   return {
     /* ---------- everyone: where do I stand ---------- */
@@ -115,7 +130,7 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, audit, us
       const me = signedIn(req, res); if (!me) return;
       const g = load();
       const ended = G.unlink(g, me.id);
-      if (ended) { save(); audit(req, 'gym.client.unlink', { user: me, target: userById(ended.trainer) }); }
+      if (ended) { save(); release(me.id, ended.trainer); audit(req, 'gym.client.unlink', { user: me, target: userById(ended.trainer) }); }
       json(res, 200, { ok: true, ended: !!ended });
     },
 
@@ -128,7 +143,10 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, audit, us
       const clients = G.clientsOf(g, me.id)
         .map(l => ({ l, u: userById(l.member) }))
         .filter(x => x.u && !x.u.disabled)
-        .map(({ l, u }) => ({ id: u.id, name: u.name, since: l.since, ...clientSummary(readState(u.id), records) }));
+        .map(({ l, u }) => {
+          const p = G.programmeOf(g, u.id);
+          return { id: u.id, name: u.name, since: l.since, ...clientSummary(readState(u.id), records), programme: p ? { start: p.start, days: Object.keys(p.week) } : null };
+        });
       json(res, 200, { code: mine.code, clients, now: Date.now() });
     },
 
@@ -140,7 +158,7 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, audit, us
       const l = G.trainerOf(g, me.id) && G.clientsOf(g, me.id).find(x => x.member === id);
       const u = l && userById(id);
       if (!u || u.disabled) return json(res, 404, { error: 'not your client', code: 'not-client' });
-      json(res, 200, { client: { id: u.id, name: u.name, since: l.since }, ...clientDetail(readState(u.id), records) });
+      json(res, 200, { client: { id: u.id, name: u.name, since: l.since }, ...clientDetail(readState(u.id), records), programme: programmeView(G.programmeOf(g, u.id)) });
     },
 
     'POST /api/gym/client/remove': async (req, res) => {
@@ -149,8 +167,44 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, audit, us
       const g = load();
       if (!G.removeClient(g, me.id, String(body.id || ''))) return json(res, 404, { error: 'not your client', code: 'not-client' });
       save();
+      release(String(body.id), me.id);
       audit(req, 'gym.client.remove', { user: me, target: userById(String(body.id)) });
       json(res, 200, { ok: true });
+    },
+
+    /* ---------- trainer: a programme in a client's own plan (M2) ---------- */
+    'POST /api/gym/programme': async (req, res) => {
+      const me = signedIn(req, res); if (!me) return;
+      const body = await readBody(req);
+      const id = String(body.id || '');
+      const g = load();
+      const l = G.trainerOf(g, me.id) && G.clientsOf(g, me.id).find(x => x.member === id);
+      const u = l && userById(id);
+      if (!u || u.disabled) return json(res, 404, { error: 'not your client', code: 'not-client' });
+      const start = typeof body.start === 'string' && ISO_DAY.test(body.start) ? body.start : new Date().toISOString().slice(0, 10);
+      const now = new Date();
+      // From the trainer's own plan as the server has it (the app syncs before it asks).
+      const prog = buildProgramme(readState(me.id), me, body.routines, body.days, now);
+      if (prog.error) return json(res, 400, { error: PROGRAMME_ERROR[prog.error], code: prog.error });
+      writeStateFor(u.id, S => { applyProgramme(S, me.id, prog); return true; });
+      const rec = G.setProgramme(g, { member: u.id, trainer: me.id, start, assignedAt: now.toISOString(), week: prog.week, routines: prog.snapshots });
+      save();
+      audit(req, 'gym.programme.assign', { user: me, target: u, msg: prog.routines.map(r => r.name).join(', ') });
+      json(res, 200, { programme: programmeView(rec) });
+    },
+
+    'POST /api/gym/programme/remove': async (req, res) => {
+      const me = signedIn(req, res); if (!me) return;
+      const body = await readBody(req);
+      const id = String(body.id || '');
+      const g = load();
+      const l = G.trainerOf(g, me.id) && G.clientsOf(g, me.id).find(x => x.member === id);
+      if (!l || !userById(id)) return json(res, 404, { error: 'not your client', code: 'not-client' });
+      writeStateFor(id, S => removeProgramme(S, me.id));
+      const had = G.dropProgramme(g, id);
+      if (had) save();
+      audit(req, 'gym.programme.remove', { user: me, target: userById(id) });
+      json(res, 200, { ok: true, removed: !!had });
     },
 
     /* ---------- admin: who trains here ---------- */
@@ -175,7 +229,9 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, audit, us
       }
       if (body.trainer === false) {
         const had = G.trainerOf(g, u.id);
+        const members = G.clientsOf(g, u.id).map(l => l.member);
         const ended = G.dropTrainer(g, u.id);
+        for (const m of members) release(m, u.id);
         if (had) { save(); audit(req, 'gym.trainer.revoke', { user: admin, target: u, msg: ended + ' clients' }); }
         return json(res, 200, { trainer: null, endedLinks: ended });
       }

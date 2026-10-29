@@ -6,11 +6,15 @@ import { Section, Row, Button } from '../components/ui.jsx'
 import Icon from '../components/Icon.jsx'
 import { fmtNum } from '../lib/format.js'
 import { gt, listClients, clientLine, sortClients, agoLabel, gymAvailable, ATTENTION_DAYS } from './api.js'
+import { listConsistency } from './adherence.js'
 
 const weightLabel = c => c.weight ? fmtNum(c.weight.w) + ' ' + c.unit : '–'
-const lineSub = c => c.lastWorkout
-  ? gt('Last workout {0} · {1} this week · {2} in 30 days', agoLabel(c.lastWorkout), c.last7, c.last30)
-  : gt('No workouts yet')
+const lineSub = c => {
+  const pct = listConsistency(c)
+  const month = pct != null ? gt('{0} % of plan this month', pct) : gt('{0} in 30 days', c.last30)
+  return c.lastWorkout ? gt('Last workout {0} · {1} this week · {2}', agoLabel(c.lastWorkout), c.last7, month)
+    : pct != null ? gt('No workouts yet · {0}', month) : gt('No workouts yet')
+}
 
 // A trainer's clients: the members who share their training with them, the ones who slipped first.
 export default function Clients() {

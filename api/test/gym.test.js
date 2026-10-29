@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 import * as G from '../gym/store.js';
 import { clientSummary, clientDetail } from '../gym/routes.js';
+import * as P from '../gym/programme.js';
 
 const records = v => (Array.isArray(v) ? v.filter(x => !!x && typeof x === 'object' && !Array.isArray(x)) : []);
 
@@ -51,7 +52,7 @@ test('taking the trainer role away ends every link to them; deleted accounts lea
   assert.equal(G.prune(g, ['t1', 'm1']), true);
   assert.deepEqual(g.links.map(l => l.member), ['m1']);
   assert.equal(G.prune(g, ['m1']), true);
-  assert.deepEqual(g, { v: 1, trainers: [], links: [] });
+  assert.deepEqual(g, { v: 1, trainers: [], links: [], programmes: [] });
 });
 
 test('a gym.json that is not the expected shape is read as far as it is sound', () => {
@@ -140,6 +141,8 @@ async function startServer(t) {
   };
   return {
     dataDir,
+    base: `http://127.0.0.1:${port}`,
+    headers: uid => ({ Cookie: `gymsid=${mintSession(uid)}`, 'Content-Type': 'application/json', Origin: 'http://localhost:8080' }),
     get: (uid, p) => call(uid, 'GET', p),
     post: (uid, p, body = {}) => call(uid, 'POST', p, body),
     anon: async p => (await fetch(`http://127.0.0.1:${port}${p}`)).status,
@@ -213,7 +216,7 @@ test('a member who stops sharing is gone from the trainer at once; so is everyon
 
   // What is on disk is only roles and links: no training data is ever copied there.
   const saved = JSON.parse(fs.readFileSync(path.join(s.dataDir, 'gym.json'), 'utf8'));
-  assert.deepEqual(Object.keys(saved).sort(), ['links', 'trainers', 'v']);
+  assert.deepEqual(Object.keys(saved).sort(), ['links', 'programmes', 'trainers', 'v']);
 });
 
 test('a deleted member drops out of the trainer list', async t => {
@@ -222,4 +225,127 @@ test('a deleted member drops out of the trainer list', async t => {
   await s.post(PRIYA, '/api/gym/link', { code: 'AMAN01', consent: true });
   assert.equal((await s.post(OWNER, '/api/admin/user/delete', { id: PRIYA })).status, 200);
   assert.deepEqual((await s.get(AMAN, '/api/gym/clients')).body.clients, []);
+});
+
+/* ---------- M2: a programme in the member's own plan ---------- */
+
+const TRAINER_S = {
+  routines: [
+    { id: 'tr-push', name: 'Push', emoji: '💪', _ts: 9, ex: [{ id: '0025', sets: 3, reps: 8, weight: 60, _f: { reps: 1 } }, { id: 'c-sled', sets: 2, sec: 30, mode: 'time' }] },
+    { id: 'tr-legs', name: 'Legs', ex: [{ id: '0043', sets: 3, reps: 6, repsMin: 5, repsMax: 8, weight: 80 }] },
+    { id: 'tr-other', name: 'Mine only', ex: [] },
+  ],
+  customEx: [{ id: 'c-sled', n: 'sled push', m: ['quads'], media: { hash: 'h' }, url: 'https://x' }],
+};
+const AMAN_U = { id: 'u_aman', name: 'Aman Verma' };
+
+test('a programme is the trainer\'s routines copied with new ids, on the days chosen', () => {
+  const p = P.buildProgramme(TRAINER_S, AMAN_U, ['tr-push', 'tr-legs'], { 1: ['tr-push'], 3: ['tr-legs'], 5: ['tr-push', 'tr-legs'], 6: ['tr-other'] });
+  assert.equal(p.routines.length, 2);
+  const [push, legs] = p.routines;
+  assert.notEqual(push.id, 'tr-push');
+  assert.equal(push.assignedBy, 'u_aman');
+  assert.equal(push.assignedByName, 'Aman Verma');
+  assert.equal(push._ts, undefined, 'no stamps of the trainer\'s copy travel');
+  assert.equal(push.ex[0]._f, undefined);
+  assert.deepEqual(p.week, { 1: [push.id], 3: [legs.id], 5: [push.id, legs.id] }, 'a routine not picked never lands on a day');
+  assert.deepEqual(p.customEx, [{ id: 'c-sled', n: 'sled push', m: ['quads'], assignedBy: 'u_aman' }], 'by name, without the trainer\'s pictures');
+  assert.deepEqual(p.snapshots[1], { id: legs.id, name: 'Legs', emoji: null, ex: [{ id: '0043', sets: 3, reps: 6, repsMin: 5, repsMax: 8, weight: 80 }] });
+  assert.deepEqual(P.buildProgramme(TRAINER_S, AMAN_U, [], {}), { error: 'no-routines' });
+  assert.deepEqual(P.buildProgramme(TRAINER_S, AMAN_U, ['nope'], { 1: ['nope'] }), { error: 'unknown-routine' });
+  assert.deepEqual(P.buildProgramme(TRAINER_S, AMAN_U, ['tr-push'], {}), { error: 'no-days' });
+});
+
+test('applying replaces the weekly plan and the trainer\'s old programme; the member\'s own routines stay', () => {
+  const S = { routines: [{ id: 'own', name: 'My cardio', ex: [] }], week: { 2: ['own'], 4: 'own' }, queue: { items: [] }, scheduleMode: 'rotation', dayPlan: {} };
+  const first = P.buildProgramme(TRAINER_S, AMAN_U, ['tr-push'], { 1: ['tr-push'] });
+  P.applyProgramme(S, 'u_aman', first);
+  assert.deepEqual(S.routines.map(r => r.name), ['My cardio', 'Push']);
+  assert.deepEqual(S.week, { 1: [first.routines[0].id] });
+  assert.equal(S.scheduleMode, 'week');
+  assert.equal(S.queue, null);
+  S.dayPlan['2026-11-02'] = first.routines[0].id;
+  const second = P.buildProgramme(TRAINER_S, AMAN_U, ['tr-legs'], { 2: ['tr-legs'] });
+  P.applyProgramme(S, 'u_aman', second);
+  assert.deepEqual(S.routines.map(r => r.name), ['My cardio', 'Legs'], 'the old programme went, with its reschedule');
+  assert.deepEqual(S.dayPlan, {});
+  assert.deepEqual(S.customEx, [], 'the old programme\'s exercise went with it; Legs uses none');
+  assert.equal(P.removeProgramme(S, 'u_aman'), true);
+  assert.deepEqual(S.routines.map(r => r.name), ['My cardio']);
+  assert.deepEqual(S.week, {});
+});
+
+test('when the sharing ends the member keeps the routines, as their own', () => {
+  const S = { routines: [], week: {} };
+  P.applyProgramme(S, 'u_aman', P.buildProgramme(TRAINER_S, AMAN_U, ['tr-push'], { 1: ['tr-push'] }));
+  assert.equal(P.releaseProgramme(S, 'u_aman'), 1);
+  assert.equal(S.routines[0].name, 'Push');
+  assert.equal(S.routines[0].assignedBy, null);
+  assert.equal(S.customEx[0].assignedBy, null);
+  assert.equal(Object.keys(S.week).length, 1, 'the days stay too');
+});
+
+test('a trainer assigns a programme to a client; it lands in the member\'s plan, stamped, and survives a stale phone', async t => {
+  const s = await startServer(t);
+  fs.writeFileSync(path.join(s.dataDir, `state-${AMAN}.json`), JSON.stringify({ _rev: 3, ...TRAINER_S }));
+  await s.post(OWNER, '/api/gym/trainer', { id: AMAN, trainer: true });
+  await s.post(PRIYA, '/api/gym/link', { code: 'AMAN01', consent: true });
+
+  // Priya has a routine of her own on Tuesdays, and her phone read her plan before the trainer
+  // assigned anything.
+  const own = JSON.parse(fs.readFileSync(path.join(s.dataDir, `state-${PRIYA}.json`), 'utf8'));
+  fs.writeFileSync(path.join(s.dataDir, `state-${PRIYA}.json`), JSON.stringify({ ...own, _rev: 4, routines: [{ id: 'own', name: 'My cardio', ex: [] }], week: { 2: ['own'] } }));
+  const before = await s.get(PRIYA, '/api/data');
+  const phoneRev = before.body.rev ?? before.body.state?._rev;
+
+  // Only for a client of theirs, and only their own routines.
+  assert.equal((await s.post(AMAN, '/api/gym/programme', { id: RAHUL, routines: ['tr-push'], days: { 1: ['tr-push'] } })).status, 404);
+  assert.equal((await s.post(RAHUL, '/api/gym/programme', { id: PRIYA, routines: ['tr-push'], days: { 1: ['tr-push'] } })).status, 404);
+  assert.equal((await s.post(AMAN, '/api/gym/programme', { id: PRIYA, routines: ['nope'], days: { 1: ['nope'] } })).body.code, 'unknown-routine');
+
+  const r = await s.post(AMAN, '/api/gym/programme', { id: PRIYA, routines: ['tr-push', 'tr-legs'], days: { 1: ['tr-push'], 4: ['tr-legs'] }, start: '2026-11-02' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.programme.start, '2026-11-02');
+  assert.deepEqual(r.body.programme.routines.map(x => x.name), ['Push', 'Legs']);
+
+  const S = JSON.parse(fs.readFileSync(path.join(s.dataDir, `state-${PRIYA}.json`), 'utf8'));
+  const mine = S.routines.filter(x => x.assignedBy === AMAN);
+  assert.deepEqual(mine.map(x => x.name), ['Push', 'Legs']);
+  assert.ok(mine.every(x => Number(x._ts) > 0), 'each copy carries its own stamp, so a merge keeps it');
+  assert.deepEqual(Object.keys(S.week).sort(), ['1', '4'], 'the trainer\'s days replace hers');
+  assert.ok(S.routines.some(x => x.name === 'My cardio'), 'her own routine stays in her plan');
+  assert.ok(S.workouts.length === 1, 'her history is untouched');
+  assert.ok(S._rev > (phoneRev || 0), 'the revision moved: her devices pull it');
+
+  // The stale phone pushes the copy it read: refused, so it merges instead of overwriting.
+  const push = await fetch(`${s.base}/api/data`, { method: 'PUT', headers: s.headers(PRIYA), body: JSON.stringify({ state: before.body.state, baseRev: phoneRev, stamped: true }) });
+  assert.equal(push.status, 409);
+
+  // The trainer sees what was assigned; the client list knows the days.
+  const detail = await s.get(AMAN, `/api/gym/client?id=${PRIYA}`);
+  assert.deepEqual(detail.body.programme.routines[0].ex.map(e => e.id), ['0025', 'c-sled']);
+  const list = await s.get(AMAN, '/api/gym/clients');
+  assert.deepEqual(list.body.clients.find(c => c.id === PRIYA).programme, { start: '2026-11-02', days: ['1', '4'] });
+
+  // Removing the programme takes the routines and their days out of her plan.
+  assert.equal((await s.post(AMAN, '/api/gym/programme/remove', { id: PRIYA })).body.removed, true);
+  const S2 = JSON.parse(fs.readFileSync(path.join(s.dataDir, `state-${PRIYA}.json`), 'utf8'));
+  assert.equal(S2.routines.filter(x => x.assignedBy).length, 0);
+  assert.deepEqual(S2.week, {});
+  assert.equal((await s.get(AMAN, `/api/gym/client?id=${PRIYA}`)).body.programme, null);
+});
+
+test('a member who stops sharing keeps the programme as their own routines', async t => {
+  const s = await startServer(t);
+  fs.writeFileSync(path.join(s.dataDir, `state-${AMAN}.json`), JSON.stringify(TRAINER_S));
+  await s.post(OWNER, '/api/gym/trainer', { id: AMAN, trainer: true });
+  await s.post(PRIYA, '/api/gym/link', { code: 'AMAN01', consent: true });
+  await s.post(AMAN, '/api/gym/programme', { id: PRIYA, routines: ['tr-push'], days: { 1: ['tr-push'] } });
+  await s.post(PRIYA, '/api/gym/unlink');
+  const S = JSON.parse(fs.readFileSync(path.join(s.dataDir, `state-${PRIYA}.json`), 'utf8'));
+  const push = S.routines.find(x => x.name === 'Push');
+  assert.ok(push, 'still in her plan');
+  assert.equal(push.assignedBy, null, 'and hers to edit');
+  const saved = JSON.parse(fs.readFileSync(path.join(s.dataDir, 'gym.json'), 'utf8'));
+  assert.deepEqual(saved.programmes, []);
 });

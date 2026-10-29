@@ -246,7 +246,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <p class="api-facts">
     <span>OpenAPI 3.1.0</span>
     <span>openGym v1.4.3</span>
-    <span>83 endpoints</span>
+    <span>85 endpoints</span>
     <span>AGPL-3.0-or-later</span>
   </p>
 
@@ -2829,6 +2829,97 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s2">200</span>
     <span class="p-desc">Removed. Audited.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Not your client (<code>not-client</code>).</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-gymProgramme">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/gym/programme</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Trainer: put a programme into a client's plan</span>
+  </summary>
+  <div class="ep-body">
+<p>Copies the named routines from the trainer's own plan (as the server has it) into the client's plan with new ids, marked <code>assignedBy</code>, and makes the chosen weekdays the client's weekly plan (their own routines stay, unscheduled; a rotation gives way). Replaces the trainer's previous programme for that client. Written like any synced edit, so the client's devices merge it in. Audited.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">id<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc">The client.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">routines<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string[]</span>
+    <span class="p-desc">The trainer's own routine ids, in order (at most 14).</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">days<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc">Weekday (&quot;0&quot; = Sunday … &quot;6&quot;) → some of those routine ids.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">start</span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc">The first day the programme counts from. Defaults to today.</span>
+  </div>
+</div>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">The programme: start, weekdays and a snapshot of each routine's exercises and targets.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">A routine not in your plan (<code>unknown-routine</code>), none picked (<code>no-routines</code>), more than 14 (<code>too-many</code>) or no day chosen (<code>no-days</code>).</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Not your client (<code>not-client</code>).</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-gymProgrammeRemove">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/gym/programme/remove</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Trainer: take a programme out of a client's plan</span>
+  </summary>
+  <div class="ep-body">
+<p>The programme's routines and their weekdays leave the client's plan. Audited.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">id<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc"><code>removed</code> says whether there was one.</span>
   </div>
   <div class="prow rrow">
     <span class="r-code s4">401</span>

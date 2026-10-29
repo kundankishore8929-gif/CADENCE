@@ -3,3 +3,20 @@
 /* The exercises of an opened workout, under its row in a client's history. */
 .lrow.gym-sub { padding-inline-start: 56px; }
 .lrow.gym-sub .lrow-t { font-size: .94em; font-weight: 500; }
+
+/* The weekday chips under a routine in the trainer's Assign programme sheet. */
+.gym-days { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 12px 12px 16px; }
+.gym-day { min-width: 40px; flex: 1; min-height: 34px; border-radius: 10px; border: 1px solid var(--sep); background: var(--surface-2);
+  color: var(--label); font: inherit; font-size: .86em; font-weight: 600; }
+.gym-day.on { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
+
+/* Assigned vs done: the status word beside an exercise. The plain surface first: the iPhone app's
+   floor (iOS 15.5) has no color-mix and keeps it. */
+.gym-st { font-size: .78em; font-weight: 700; padding: 2px 8px; border-radius: 99px; white-space: nowrap; background: var(--surface-3); }
+.gym-st.done { background: var(--surface-3); background: color-mix(in srgb, var(--acc) 22%, transparent); color: var(--acc); }
+.gym-st.partly { background: var(--surface-3); background: color-mix(in srgb, var(--orange) 22%, transparent); color: var(--orange); }
+.gym-st.missed { background: var(--surface-3); background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); }
+.gym-st.swapped { background: var(--surface-3); color: var(--label-2); }
+
+/* "From Aman" on a routine the trainer assigned (Plan) and its read-only page. */
+.gym-from { color: var(--acc); font-weight: 600; }

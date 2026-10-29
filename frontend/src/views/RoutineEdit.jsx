@@ -25,6 +25,7 @@ import { speedUnitOf } from '../lib/speed.js'
 import { POLICIES_FOR, POLICY_NAME, POLICY_DESC } from '../lib/progression.js'
 import BodyMap from '../components/BodyMap.jsx'
 import { loadOfRoutine, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
+import AssignedRoutine from '../gym/AssignedRoutine.jsx'
 
 export const ROUTINE_LONG_PRESS_MS = 380
 export const ROUTINE_DRAG_SLOP = 8
@@ -380,6 +381,8 @@ export default function RoutineEdit() {
     edit(exercises => { reorderRoutineUnit(exercises, sourceIndex, targetSlot) })
   })
   if (!r) return null
+  // CADENCE: a routine a trainer assigned opens read-only (src/gym/AssignedRoutine.jsx).
+  if (r.assignedBy) return <AssignedRoutine routine={r} />
   // The arrows move one exercise (#377): inside its superset, out of it at the edge, and past a
   // whole neighbouring unit otherwise (lib/history.js moveRoutineEntry). Drag moves supersets whole.
   const move = (i, dir) => {

@@ -28,6 +28,7 @@ import {
   scheduleModeOf, queueRecovery, rotationIds, saveRotation, startNewPass, startPass, stopPass,
   chooseRotation, chooseFixedWeek, sequenceOf, isSimpleSequence, segmentAt, REST,
 } from '../lib/rotation.js'
+import { gt } from '../gym/api.js'
 
 // Plan has two views (v1.3.11): Schedule (how you train, and when) and Routines (what you
 // train). The last one you looked at comes back: a per-device convenience, never synced, so it
@@ -46,6 +47,8 @@ export function deleteRoutineWithUndo(id) {
   const st = useStore.getState()
   const snap = routineSnapshot(st.S, id)
   if (!snap) return false
+  // CADENCE: a routine a trainer assigned stays until the trainer changes the programme.
+  if (snap.routine.assignedBy) { useUI.getState().toast(gt('{0} set this routine. Ask them to change your programme.', snap.routine.assignedByName || gt('Your trainer'))); return false }
   const before = st.S
   st.update(s => { deleteRoutine(s, id) })
   // What the removal moved (weekdays, reschedules, the loop), for the Undo to mark as put back:
@@ -430,6 +433,7 @@ function Routines({ S, update, nav }) {
   // one, and staying on this list rather than opening it.
   const duplicate = r => {
     const copy = copyRoutine(r, t('Copy'))
+    if (copy.assignedBy) { copy.assignedBy = null; copy.assignedByName = null }   // a copy is the member's own (CADENCE)
     update(s => {
       const at = s.routines.findIndex(x => x.id === r.id)
       s.routines.splice(at < 0 ? s.routines.length : at + 1, 0, copy)
@@ -444,7 +448,7 @@ function Routines({ S, update, nav }) {
   // The weekdays a routine is on, short, in the order the week runs.
   const order = weekOrder(weekStartOf(S))
   const daysOf = id => order.filter(d => [].concat(S.week[d] || []).includes(id)).map(d => t(DAYS[d]))
-  const sub = r => [exCount(r.ex.length), daysOf(r.id).join(', ')].filter(Boolean).join(' · ')
+  const sub = r => [r.assignedBy && gt('From {0}', r.assignedByName || gt('your trainer')), exCount(r.ex.length), daysOf(r.id).join(', ')].filter(Boolean).join(' · ')
 
   return <>
     <div className="row between plan-sec-h plan-routines-bar">
