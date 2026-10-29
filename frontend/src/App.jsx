@@ -67,6 +67,10 @@ const CoachChat = lazyView(() => import('./views/CoachChat.jsx'))
 const Measurements = lazyView(() => import('./views/Measurements.jsx'))
 const CoachIntake = lazyView(() => import('./views/CoachIntake.jsx'))
 const CoachSetup = lazyView(() => import('./views/CoachSetup.jsx'))
+// CADENCE: trainers and the members who share with them (src/gym/)
+const MyTrainer = lazyView(() => import('./gym/MyTrainer.jsx'))
+const Clients = lazyView(() => import('./gym/Clients.jsx'))
+const ClientDetail = lazyView(() => import('./gym/ClientDetail.jsx'))
 const StructuralBalance = lazyView(() => import('./views/StructuralBalance.jsx'))
 const ProgressPhotos = lazyView(() => import('./views/ProgressPhotos.jsx'))
 // The tabs and screens past Home (Stats, History, the Library, Settings, ...) as well: a start
@@ -314,6 +318,9 @@ function Shell() {
       <Route path="/coach/proposal" element={<Navigate to="/coach" replace />} />
       <Route path="/coach/setup" element={<CoachSetup />} />
       <Route path="/admin" element={user?.admin ? <Admin /> : <Navigate to="/home" replace />} />
+      <Route path="/gym/trainer" element={<MyTrainer />} />
+      <Route path="/gym/clients" element={<Clients />} />
+      <Route path="/gym/clients/:id" element={<ClientDetail />} />
       <Route path="*" element={<Navigate to="/home" replace />} />
     </Routes>
   ))

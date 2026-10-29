@@ -167,6 +167,10 @@ tags:
       attached to a logged workout. Stored per profile (one quota for both) and named
       by the SHA-256 of its bytes; the state only carries a `MediaRef`. Every route here is a
       404 when the instance runs with `MEDIA_UPLOADS=0`.
+  - name: gym
+    description: >-
+      CADENCE: trainers, and the members who share their training with one. Members choose
+      and can stop at any time; trainers never see photos, videos or notes.
   - name: coach
     description: >-
       AI Coach: plans, reviews and debriefs. Every route here answers 503 unless the
@@ -3290,6 +3294,134 @@ paths:
               example: { error: "unknown provider" }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------- CADENCE: trainers and the members who share with them (api/gym/routes.js) ----------
+  /api/gym/me:
+    get:
+      tags: [gym]
+      operationId: gymMe
+      summary: My trainer role and the trainer I share with
+      responses:
+        '200':
+          description: >-
+            `trainer` is set when the caller is a trainer (their code and client count);
+            `myTrainer` when the caller shares their training with one.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trainer: { type: object, nullable: true }
+                  myTrainer: { type: object, nullable: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/gym/link:
+    post:
+      tags: [gym]
+      operationId: gymLink
+      summary: Share my training with a trainer
+      description: >-
+        The member types the trainer's code and agrees to share (`consent: true`). One trainer at
+        a time. The trainer then sees the member's workouts, body weight, measurements and routine
+        names; never photos, videos or notes. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, consent]
+              properties:
+                code: { type: string, example: AMAN01 }
+                consent: { type: boolean, enum: [true] }
+      responses:
+        '200': { description: Linked. Answers with `myTrainer`. }
+        '400': { description: 'No consent (`consent`).' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'No trainer has this code (`no-such-code`).' }
+        '409': { description: 'Your own code (`self`), or already sharing with another trainer (`already-linked`).' }
+  /api/gym/unlink:
+    post:
+      tags: [gym]
+      operationId: gymUnlink
+      summary: Stop sharing my training
+      description: The trainer loses access at once. Audited.
+      responses:
+        '200': { description: 'Done; `ended` says whether there was a trainer.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/gym/clients:
+    get:
+      tags: [gym]
+      operationId: gymClients
+      summary: 'Trainer: the members who share with me'
+      description: >-
+        One line per client: workouts in total, the last workout's date, the dates of the last 40
+        days (the app counts weeks and months on the trainer's own calendar) and the latest weigh-in.
+      responses:
+        '200': { description: The trainer's code and the client list. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: 'Not a trainer (`not-trainer`).' }
+  /api/gym/client:
+    get:
+      tags: [gym]
+      operationId: gymClient
+      summary: "Trainer: one client's training"
+      parameters:
+        - { name: id, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: 'Workouts (newest first), body weight, measurements, custom exercise names, routine names. No photos, videos or notes.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'Not a member who shares with you (`not-client`).' }
+  /api/gym/client/remove:
+    post:
+      tags: [gym]
+      operationId: gymClientRemove
+      summary: 'Trainer: let a client go'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+      responses:
+        '200': { description: Removed. Audited. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'Not your client (`not-client`).' }
+  /api/gym/trainers:
+    get:
+      tags: [gym]
+      operationId: gymTrainers
+      summary: 'Admin: every trainer, their code and client count'
+      responses:
+        '200': { description: The trainers. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/gym/trainer:
+    post:
+      tags: [gym]
+      operationId: gymTrainer
+      summary: 'Admin: give or take the trainer role'
+      description: >-
+        `trainer: true` gives the role and a code made from the first name ("AMAN01");
+        `trainer: false` takes it away and ends every member's link to them. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, trainer]
+              properties:
+                id: { type: string }
+                trainer: { type: boolean }
+      responses:
+        '200': { description: 'The trainer record, or `trainer: null` and how many links ended.' }
+        '400': { description: A disabled account, or `trainer` missing. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: No such user. }
 
 components:
   securitySchemes:

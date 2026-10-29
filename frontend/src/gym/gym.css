@@ -1,0 +1,5 @@
+/* CADENCE gym screens (src/gym/). Only what openGym's own styles do not already cover. */
+
+/* The exercises of an opened workout, under its row in a client's history. */
+.lrow.gym-sub { padding-inline-start: 56px; }
+.lrow.gym-sub .lrow-t { font-size: .94em; font-weight: 500; }
