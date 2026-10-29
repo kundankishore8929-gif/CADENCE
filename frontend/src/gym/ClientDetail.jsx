@@ -6,9 +6,10 @@ import Icon from '../components/Icon.jsx'
 import { confirmSheet } from '../sheets.jsx'
 import { fmtDate, fmtNum } from '../lib/format.js'
 import { EXIDX } from '../lib/exercises.js'
-import { gt, getClient, removeClient, removeProgramme, clientLine, agoLabel, isoDaysAgo, localDay } from './api.js'
+import { gt, getClient, removeClient, removeProgramme, clientLine, agoLabel, isoDaysAgo, localDay, visitsThisMonth } from './api.js'
 import { compareWorkout, monthStats } from './adherence.js'
 import AssignProgramme, { WEEK } from './AssignProgramme.jsx'
+import { TrainerPt } from './PtPackages.jsx'
 import './gym.css'
 
 const cap = s => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
@@ -110,9 +111,11 @@ export default function ClientDetail() {
     <div className="tiles" style={{ marginBottom: 12 }}>
       <div className="tile"><div className="l">{gt('Last workout')}</div><div className="v" style={{ fontSize: '1rem', color: line.attention ? 'var(--orange)' : undefined }}>{agoLabel(line.lastWorkout)}</div></div>
       <div className="tile"><div className="l">{gt('This week')}</div><div className="v">{line.last7}</div></div>
-      <div className="tile"><div className="l">{gt('30 days')}</div><div className="v">{line.last30}</div></div>
+      <div className="tile"><div className="l">{gt('Visits this month')}</div><div className="v">{visitsThisMonth(d.visits)}</div></div>
       <div className="tile"><div className="l">{gt('Body weight')}</div><div className="v" style={{ fontSize: '1rem' }}>{lastW ? fmtNum(lastW.w) + ' ' + d.unit : '–'}</div></div>
     </div>
+
+    <TrainerPt client={d.client} pt={d.pt} onChange={r => setD(x => ({ ...x, pt: { packages: r.packages } }))} />
 
     {prog ? <>
       <Section title={gt('Programme')} footer={gt('Counts from {0}.', fmtDate(prog.start, true, true))}>

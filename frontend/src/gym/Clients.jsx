@@ -6,6 +6,7 @@ import { Section, Row, Button } from '../components/ui.jsx'
 import Icon from '../components/Icon.jsx'
 import { fmtNum } from '../lib/format.js'
 import { gt, listClients, clientLine, sortClients, agoLabel, gymAvailable, ATTENTION_DAYS } from './api.js'
+import './gym.css'
 import { listConsistency } from './adherence.js'
 
 const weightLabel = c => c.weight ? fmtNum(c.weight.w) + ' ' + c.unit : '–'
@@ -16,7 +17,10 @@ const lineSub = c => {
     : pct != null ? gt('No workouts yet · {0}', month) : gt('No workouts yet')
 }
 
-// A trainer's clients: the members who share their training with them, the ones who slipped first.
+/** The line under a client's name, with what their PT package needs first (M3). */
+const sub = c => c.alerts.length ? <><span className="gym-alert">{c.alerts.map(a => a.text).join(' · ')}</span>{' · ' + lineSub(c)}</> : lineSub(c)
+
+// A trainer's clients: the members who share their training with them, the ones who need something first.
 export default function Clients() {
   const nav = useNavigate()
   const user = useStore(s => s.user)
@@ -27,7 +31,7 @@ export default function Clients() {
   useEffect(() => { if (gymAvailable(user)) load() }, [user?.id])
 
   const lines = d ? sortClients(d.clients.map(c => clientLine(c))) : []
-  const slipping = lines.filter(c => c.attention)
+  const slipping = lines.filter(c => c.needs)
   const copy = () => { navigator.clipboard?.writeText(d.code).catch(() => {}); toast(gt('Code {0} copied', d.code)) }
 
   return <div className="narrow">
@@ -50,12 +54,13 @@ export default function Clients() {
 
         {!lines.length && <div className="card small muted">{gt('No clients yet. Give your members your code {0}.', d.code)}</div>}
 
-        {slipping.length > 0 && <Section title={gt('Need attention')} footer={gt('No workout in the last {0} days.', ATTENTION_DAYS)}>
-          {slipping.map(c => <Row key={c.id} icon="warning" iconTint="var(--orange)" title={c.name} subtitle={lineSub(c)} value={weightLabel(c)} accessory="chevron" onClick={() => nav('/gym/clients/' + encodeURIComponent(c.id))} />)}
+        {slipping.length > 0 && <Section title={gt('Need attention')} footer={gt('No workout in the last {0} days, or their PT package: a flagged session, 2 or fewer left, expiring within a week, or just finished.', ATTENTION_DAYS)}>
+          {slipping.map(c => <Row key={c.id} icon={c.alerts.some(a => a.kind === 'flagged') ? 'flag' : 'warning'} iconTint={c.alerts.some(a => a.kind === 'flagged') ? 'var(--red)' : 'var(--orange)'}
+            title={c.name} subtitle={sub(c)} value={weightLabel(c)} accessory="chevron" onClick={() => nav('/gym/clients/' + encodeURIComponent(c.id))} />)}
         </Section>}
 
         {lines.length > slipping.length && <Section title={gt('On track')}>
-          {lines.filter(c => !c.attention).map(c => <Row key={c.id} icon="person" iconTint="var(--acc)" title={c.name} subtitle={lineSub(c)} value={weightLabel(c)} accessory="chevron" onClick={() => nav('/gym/clients/' + encodeURIComponent(c.id))} />)}
+          {lines.filter(c => !c.needs).map(c => <Row key={c.id} icon="person" iconTint="var(--acc)" title={c.name} subtitle={sub(c)} value={weightLabel(c)} accessory="chevron" onClick={() => nav('/gym/clients/' + encodeURIComponent(c.id))} />)}
         </Section>}
       </>}
   </div>

@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import { MOBILE } from './lib/mobile.js'
@@ -19,8 +19,12 @@ handOverFromLaunchScreen()
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
 
+// CADENCE: a front-desk link (#/desk?k=…) is the reception screen, signed in to nobody, so it
+// gets the desk view instead of the app (src/gym/Desk.jsx).
+const Desk = /^#\/desk(\?|$)/.test(location.hash) ? lazy(() => import('./gym/Desk.jsx')) : null
+
 createRoot(document.getElementById('root')).render(
-  <StrictMode><App /></StrictMode>
+  <StrictMode>{Desk ? <Suspense fallback={null}><Desk /></Suspense> : <App />}</StrictMode>
 )
 
 // The photos and videos of custom exercises, in every build (the phone and the demo included):

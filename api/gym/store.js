@@ -4,7 +4,9 @@
  *   { v: 1,
  *     trainers: [{ id, code, since }],             // id = the user's id; code = what members type
  *     links:    [{ member, trainer, since }],      // since = when the member said yes (consent)
- *     programmes: [{ member, trainer, start, assignedAt, week, routines }] }   // M2, one per member
+ *     programmes: [{ member, trainer, start, assignedAt, week, routines }],   // M2, one per member
+ *     packages: [{ id, member, trainer, total, start, expires, … sessions }],  // M3, pt.js
+ *     desk: null | { key, secret, createdAt, by } }                           // M3, desk.js
  *
  * A member shares with one trainer at a time. Only the member creates a link (by typing the
  * trainer's code and agreeing); the member or the trainer can end it, and ending a trainer's
@@ -15,10 +17,13 @@
  * the trainer can tell later what was asked even if the member's copy changes.
  */
 
+import { normalizePackages } from './pt.js';
+import { normalizeDesk } from './desk.js';
+
 export const CODE_RE = /^[A-Z]{1,8}\d{2,3}$/;
 
 export function emptyGym() {
-  return { v: 1, trainers: [], links: [], programmes: [] };
+  return { v: 1, trainers: [], links: [], programmes: [], packages: [], desk: null };
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -45,6 +50,9 @@ export function normalize(doc) {
       g.programmes.push({ member: p.member, trainer: p.trainer, start: p.start, assignedAt: str(p.assignedAt) ? p.assignedAt : null, week: p.week, routines: p.routines });
     }
   }
+  // A member's PT packages outlive the sharing: they are the member's, not the link's.
+  g.packages = normalizePackages(doc.packages, str);
+  g.desk = normalizeDesk(doc.desk);
   return g;
 }
 
@@ -138,9 +146,10 @@ export function removeClient(g, trainerId, memberId) {
 /** Drops trainers and links whose accounts no longer exist. True when anything changed. */
 export function prune(g, userIds) {
   const live = new Set(userIds);
-  const t0 = g.trainers.length, l0 = g.links.length, p0 = g.programmes.length;
+  const t0 = g.trainers.length, l0 = g.links.length, p0 = g.programmes.length, k0 = g.packages.length;
   g.trainers = g.trainers.filter(t => live.has(t.id));
   g.links = g.links.filter(l => live.has(l.member) && live.has(l.trainer) && g.trainers.some(t => t.id === l.trainer));
   g.programmes = g.programmes.filter(p => g.links.some(l => l.member === p.member && l.trainer === p.trainer));
-  return g.trainers.length !== t0 || g.links.length !== l0 || g.programmes.length !== p0;
+  g.packages = g.packages.filter(p => live.has(p.member));
+  return g.trainers.length !== t0 || g.links.length !== l0 || g.programmes.length !== p0 || g.packages.length !== k0;
 }

@@ -21,6 +21,7 @@ import WeightRate from '../components/WeightRate.jsx'
 import { SeasonDeco } from '../components/Seasonal.jsx'
 import { BRAND } from '../gym/brand.js'
 import { ClientsCard } from '../gym/ClientsCard.jsx'
+import { CheckInCard } from '../gym/CheckInCard.jsx'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
 export default function Home() {
@@ -169,8 +170,9 @@ export default function Home() {
     </div>
 
     {/* Jump to the gym check-in cards (QR membership codes). Shown here as a quick tap on
-        arrival at the gym; folds away per user via the "Gym check-in" switch in Settings. */}
-    {S.checkIn !== false && (
+        arrival at the gym; folds away per user via the "Gym check-in" switch in Settings.
+        CADENCE: at a gym with a front-desk screen, the desk check-in takes its place. */}
+    <CheckInCard>{S.checkIn !== false && (
       <div className="card tappable" style={{ cursor: 'pointer' }} {...tappable(() => nav('/checkin'))}>
         <div className="row between">
           <div className="row" style={{ gap: 9 }}>
@@ -183,7 +185,7 @@ export default function Home() {
           <Icon name="chevronRight" className="chev" />
         </div>
       </div>
-    )}
+    )}</CheckInCard>
 
     {!S.routines.length && !S.active && (
       <div className="card">

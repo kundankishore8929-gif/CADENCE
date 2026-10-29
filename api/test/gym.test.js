@@ -14,6 +14,8 @@ import { boundPort } from './helpers.mjs';
 import * as G from '../gym/store.js';
 import { clientSummary, clientDetail } from '../gym/routes.js';
 import * as P from '../gym/programme.js';
+import * as PT from '../gym/pt.js';
+import * as D from '../gym/desk.js';
 
 const records = v => (Array.isArray(v) ? v.filter(x => !!x && typeof x === 'object' && !Array.isArray(x)) : []);
 
@@ -52,7 +54,7 @@ test('taking the trainer role away ends every link to them; deleted accounts lea
   assert.equal(G.prune(g, ['t1', 'm1']), true);
   assert.deepEqual(g.links.map(l => l.member), ['m1']);
   assert.equal(G.prune(g, ['m1']), true);
-  assert.deepEqual(g, { v: 1, trainers: [], links: [], programmes: [] });
+  assert.deepEqual(g, G.emptyGym());
 });
 
 test('a gym.json that is not the expected shape is read as far as it is sound', () => {
@@ -214,9 +216,9 @@ test('a member who stops sharing is gone from the trainer at once; so is everyon
   assert.equal((await s.get(AMAN, '/api/gym/clients')).status, 403);
   assert.equal((await s.get(PRIYA, '/api/gym/me')).body.myTrainer, null);
 
-  // What is on disk is only roles and links: no training data is ever copied there.
+  // What is on disk is roles, links, packages and the desk: no training data is ever copied there.
   const saved = JSON.parse(fs.readFileSync(path.join(s.dataDir, 'gym.json'), 'utf8'));
-  assert.deepEqual(Object.keys(saved).sort(), ['links', 'programmes', 'trainers', 'v']);
+  assert.deepEqual(Object.keys(saved).sort(), ['desk', 'links', 'packages', 'programmes', 'trainers', 'v']);
 });
 
 test('a deleted member drops out of the trainer list', async t => {
@@ -348,4 +350,223 @@ test('a member who stops sharing keeps the programme as their own routines', asy
   assert.equal(push.assignedBy, null, 'and hers to edit');
   const saved = JSON.parse(fs.readFileSync(path.join(s.dataDir, 'gym.json'), 'utf8'));
   assert.deepEqual(saved.programmes, []);
+});
+
+/* ---------- M3: PT packages (pt.js) ---------- */
+
+const at = iso => new Date(iso);
+
+test('a package needs 1 to 200 sessions, a start, and an expiry on or after the start', () => {
+  const g = G.emptyGym();
+  assert.equal(PT.addPackage(g, { member: 'm1', total: 0 }, 't1').error, 'bad-total');
+  assert.equal(PT.addPackage(g, { member: 'm1', total: 2.5 }, 't1').error, 'bad-total');
+  assert.equal(PT.addPackage(g, { member: 'm1', total: 201 }, 't1').error, 'bad-total');
+  assert.equal(PT.addPackage(g, { member: 'm1', total: 12, start: '30/10' }, 't1').error, 'bad-start');
+  assert.equal(PT.addPackage(g, { member: 'm1', total: 12, start: '2026-10-30', expires: '2026-10-01' }, 't1').error, 'bad-expiry');
+  const p = PT.addPackage(g, { member: 'm1', trainer: 't1', total: '12', expires: '', note: '  Paid cash  ' }, 't1', at('2026-10-30T09:00:00Z')).package;
+  assert.deepEqual([p.total, p.start, p.expires, p.note, p.sessions.length], [12, '2026-10-30', null, 'Paid cash', 0]);
+  assert.equal(PT.removePackage(g, p.id).package, p, 'a mistake goes while nothing is counted');
+  assert.equal(g.packages.length, 0);
+});
+
+test('sessions go to the oldest package that covers the day, once a day unless asked twice', () => {
+  const g = G.emptyGym();
+  const now = at('2026-10-30T10:00:00Z');
+  assert.equal(PT.countSession(g, 'm1', '2026-10-30', 't1', { now }).error, 'no-package');
+  const a = PT.addPackage(g, { member: 'm1', total: 2, start: '2026-10-01', expires: '2026-10-31' }, 't1', now).package;
+  const b = PT.addPackage(g, { member: 'm1', total: 10, start: '2026-10-20' }, 'desk', now).package;
+  assert.equal(PT.countSession(g, 'm1', '2026-09-30', 't1', { now }).error, 'before-start');
+  assert.equal(PT.countSession(g, 'm1', '2026-11-02', 't1', { now }).error, 'future');
+  assert.equal(PT.countSession(g, 'm1', '2026-10-28', 't1', { now }).package, a);
+  assert.equal(PT.countSession(g, 'm1', '2026-10-28', 't1', { now }).error, 'same-day');
+  assert.equal(PT.countSession(g, 'm1', '2026-10-28', 't1', { now, again: true }).package, a, 'a second session that day, when meant');
+  assert.equal(PT.countSession(g, 'm1', '2026-10-29', 't1', { now }).package, b, 'the first package is used up');
+  assert.equal(PT.removePackage(g, a.id).error, 'has-sessions');
+  assert.equal(PT.stateOf(a, '2026-10-30'), 'used-up');
+  assert.equal(PT.stateOf(b, '2026-10-30'), 'active');
+  assert.equal(PT.stateOf(b, '2026-10-19'), 'upcoming');
+
+  const h = G.emptyGym();
+  PT.addPackage(h, { member: 'm1', total: 5, start: '2026-09-01', expires: '2026-09-30' }, 't1', now);
+  assert.equal(PT.countSession(h, 'm1', '2026-10-30', 't1', { now }).error, 'expired');
+  assert.equal(PT.countSession(h, 'm1', '2026-09-30', 't1', { now }).error, undefined, 'a forgotten session from inside the dates still counts');
+});
+
+test('the trainer undoes their own count for 24 hours; the member flags for 48; the desk settles', () => {
+  const g = G.emptyGym();
+  const t0 = at('2026-10-30T10:00:00Z');
+  PT.addPackage(g, { member: 'm1', total: 12 }, 't1', at('2026-10-01T10:00:00Z'));
+  const s = PT.countSession(g, 'm1', '2026-10-30', 't1', { now: t0 }).session;
+  const later = h => new Date(t0.getTime() + h * 3600e3);
+  assert.equal(PT.undoSession(g, s.id, 't2', { now: later(1) }).error, 'not-yours');
+  assert.equal(PT.undoSession(g, s.id, 't1', { now: later(25) }).error, 'too-late');
+  assert.equal(PT.flagSession(g, s.id, 'm2', later(1)).error, 'no-session', 'only the member it was counted for');
+  assert.equal(PT.flagSession(g, s.id, 'm1', later(49)).error, 'too-late');
+  assert.equal(PT.keepSession(g, s.id, 'desk').error, 'not-flagged');
+  assert.ok(PT.flagSession(g, s.id, 'm1', later(47)).session.flag);
+  assert.equal(PT.ptSummary(g, 'm1', later(47)).flagged, 1);
+  const v = PT.packageView(g.packages[0], { nameOf: id => id.toUpperCase(), viewer: 'm1', now: later(47) });
+  assert.deepEqual([v.used, v.left, v.sessions[0].flagged, v.sessions[0].canFlag, v.sessions[0].canUndo, v.sessions[0].by.name], [1, 11, true, false, false, 'T1']);
+  assert.ok(PT.keepSession(g, s.id, 'desk', later(50)).session.flag.kept);
+  assert.equal(PT.ptSummary(g, 'm1', later(50)).flagged, 0, 'a kept flag is settled');
+  assert.equal(PT.undoSession(g, s.id, 'desk', { admin: true, now: later(500) }).session, s, 'the front desk removes any session');
+  assert.equal(g.packages[0].sessions.length, 0);
+});
+
+test('packages survive in gym.json as far as they are sound, and go with a deleted member', () => {
+  const g = G.normalize({
+    packages: [
+      { id: 'p1', member: 'm1', trainer: 't1', total: 2, start: '2026-10-01', expires: '2026-09-01', sessions: [
+        { id: 's1', d: '2026-10-02', at: '2026-10-02T10:00:00Z', by: 't1', flag: { at: '2026-10-03T10:00:00Z' } },
+        { id: 's1', d: '2026-10-03', at: '2026-10-03T10:00:00Z' },
+        { id: 's2', d: 'yesterday', at: '2026-10-03T10:00:00Z' },
+      ] },
+      { id: 'p2', member: 'm1', total: 0, start: '2026-10-01' },
+      { id: 'p3', member: 'm2', total: 5, start: '2026-10-01' },
+    ],
+    desk: { key: 'short', secret: 'x' },
+  });
+  assert.deepEqual(g.packages.map(p => p.id), ['p1', 'p3']);
+  assert.equal(g.packages[0].expires, null, 'an expiry before the start is dropped');
+  assert.deepEqual(g.packages[0].sessions.map(s => [s.id, !!s.flag]), [['s1', true]]);
+  assert.equal(g.desk, null);
+  assert.equal(G.prune(g, ['m1']), true);
+  assert.deepEqual(g.packages.map(p => p.member), ['m1']);
+});
+
+/* ---------- M3: the desk code and check-ins (desk.js) ---------- */
+
+test('the desk code changes every 30 seconds and a scan is good for the code shown or the one before', () => {
+  const desk = D.newDesk('u_own');
+  const t = 1_800_000_000_000;   // on a window edge
+  const now = D.currentCode(desk, t + 5000);
+  assert.match(now.code, /^[A-HJ-NP-Z2-9]{10}$/);
+  assert.equal(now.msLeft, 25000);
+  assert.notEqual(D.currentCode(desk, t + 30000).code, now.code);
+  assert.equal(D.codeValid(desk, now.code, t + 29999), true);
+  assert.equal(D.codeValid(desk, now.code.toLowerCase(), t + 45000), true, 'the window after it too');
+  assert.equal(D.codeValid(desk, now.code, t + 60000), false, 'a photo sent home is dead within a minute');
+  assert.equal(D.codeValid(D.newDesk('u_own'), now.code, t + 5000), false, 'a new desk link has its own codes');
+  assert.equal(D.codeValid(desk, 'ÄÄÄÄÄÄÄÄÄÄ', t), false);
+  assert.equal(D.keyMatches(desk, desk.key), true);
+  assert.equal(D.keyMatches(desk, desk.key + 'x'), false);
+  assert.equal(D.keyMatches(null, desk.key), false);
+});
+
+test('a member checks in once per 3 hours, into one file per month', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-checkins-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const write = (f, c) => fs.writeFileSync(f, c);
+  const log = D.checkinLog({ dataDir: dir, atomicWrite: write });
+  const t0 = Date.parse('2026-10-31T22:00:00Z');
+  assert.deepEqual(log.add('m1', t0), { at: t0, already: false });
+  assert.deepEqual(log.add('m1', t0 + 3600e3), { at: t0, already: true });
+  assert.equal(log.add('m1', t0 + 3.5 * 3600e3).already, false, 'the next morning (UTC) is a new visit, in November');
+  log.add('m2', t0);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'gym-checkins-2026-10.json'), 'utf8')).map(x => x.m), ['m1', 'm2']);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'gym-checkins-2026-11.json'), 'utf8')).length, 1);
+  const fresh = D.checkinLog({ dataDir: dir, atomicWrite: write });
+  assert.deepEqual(fresh.of('m1', t0 - 86400e3, t0 + 4 * 3600e3), [t0, t0 + 3.5 * 3600e3], 'read back from disk across the month');
+});
+
+/* ---------- M3: the routes ---------- */
+
+test('PT: the trainer and the front desk add packages, the trainer counts, the member sees and flags', async t => {
+  const s = await startServer(t);
+  await s.post(OWNER, '/api/gym/trainer', { id: AMAN, trainer: true });
+  await s.post(PRIYA, '/api/gym/link', { code: 'AMAN01', consent: true });
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Not Rahul for Priya, not Priya for herself, not Aman for Rahul (not his client).
+  assert.equal((await s.post(RAHUL, '/api/gym/pt/package', { member: PRIYA, total: 12 })).status, 404);
+  assert.equal((await s.post(PRIYA, '/api/gym/pt/package', { member: PRIYA, total: 12 })).status, 404);
+  assert.equal((await s.post(AMAN, '/api/gym/pt/package', { member: RAHUL, total: 12 })).status, 404);
+  assert.equal((await s.post(AMAN, '/api/gym/pt/session', { member: PRIYA, d: today })).body.code, 'no-package');
+  assert.equal((await s.post(AMAN, '/api/gym/pt/package', { member: PRIYA, total: 500 })).body.code, 'bad-total');
+
+  const added = await s.post(AMAN, '/api/gym/pt/package', { member: PRIYA, total: 12, start: today, note: 'October offer' });
+  assert.equal(added.status, 200);
+  assert.deepEqual([added.body.packages[0].total, added.body.packages[0].trainer.name, added.body.packages[0].state], [12, 'Aman Verma', 'active']);
+  // The front desk can sell Rahul one before he has a trainer.
+  assert.equal((await s.post(OWNER, '/api/gym/pt/package', { member: RAHUL, total: 8 })).body.packages[0].trainer, null);
+
+  // Only her trainer counts.
+  assert.equal((await s.post(OWNER, '/api/gym/pt/session', { member: PRIYA, d: today })).status, 404);
+  const done = await s.post(AMAN, '/api/gym/pt/session', { member: PRIYA, d: today });
+  assert.equal(done.status, 200);
+  assert.deepEqual([done.body.packages[0].used, done.body.packages[0].left, done.body.packages[0].sessions[0].canUndo], [1, 11, true]);
+  assert.equal((await s.post(AMAN, '/api/gym/pt/session', { member: PRIYA, d: today })).body.code, 'same-day');
+  assert.equal((await s.post(AMAN, '/api/gym/pt/session', { member: PRIYA, d: today, again: true })).status, 200);
+
+  // The trainer's list and her page carry the numbers.
+  const line = (await s.get(AMAN, '/api/gym/clients')).body.clients[0];
+  assert.deepEqual([line.pt.left, line.pt.flagged, line.pt.lastSession], [10, 0, today]);
+  assert.equal((await s.get(AMAN, `/api/gym/client?id=${PRIYA}`)).body.pt.packages[0].used, 2);
+
+  // Priya sees both in My trainer, flags one; Aman sees the flag; Rahul cannot flag hers.
+  const mine = (await s.get(PRIYA, '/api/gym/me')).body.pt.packages[0];
+  assert.deepEqual([mine.used, mine.sessions.every(x => x.canFlag && !x.canUndo)], [2, true]);
+  const sid = mine.sessions[0].id;
+  assert.equal((await s.post(RAHUL, '/api/gym/pt/session/flag', { id: sid })).status, 404);
+  assert.equal((await s.post(PRIYA, '/api/gym/pt/session/flag', { id: sid })).body.packages[0].sessions[0].flagged, true);
+  assert.equal((await s.get(AMAN, '/api/gym/clients')).body.clients[0].pt.flagged, 1);
+
+  // The front desk sees it and keeps it; then removes the other one.
+  assert.equal((await s.get(AMAN, `/api/gym/pt?member=${PRIYA}`)).status, 403);
+  const desk = await s.get(OWNER, `/api/gym/pt?member=${PRIYA}`);
+  assert.deepEqual([desk.body.trainer.name, desk.body.packages[0].sessions[0].flagged], ['Aman Verma', true]);
+  assert.equal((await s.post(AMAN, '/api/gym/pt/session/keep', { id: sid })).status, 403);
+  assert.equal((await s.post(OWNER, '/api/gym/pt/session/keep', { id: sid })).body.packages[0].sessions[0].kept, true);
+  const other = desk.body.packages[0].sessions[1].id;
+  assert.equal((await s.post(RAHUL, '/api/gym/pt/session/undo', { id: other })).status, 404);
+  assert.equal((await s.post(OWNER, '/api/gym/pt/session/undo', { id: other })).body.packages[0].used, 1);
+
+  // A package with sessions stays; when Priya stops sharing it stays hers, out of Aman's reach.
+  const pid = desk.body.packages[0].id;
+  assert.equal((await s.post(AMAN, '/api/gym/pt/package/remove', { id: pid })).body.code, 'has-sessions');
+  await s.post(PRIYA, '/api/gym/unlink');
+  assert.equal((await s.post(AMAN, '/api/gym/pt/session/undo', { id: sid })).status, 404);
+  assert.equal((await s.get(PRIYA, '/api/gym/me')).body.pt.packages[0].used, 1);
+  const g = JSON.parse(fs.readFileSync(path.join(s.dataDir, 'gym.json'), 'utf8'));
+  assert.equal(g.packages.length, 2);
+});
+
+test('desk: the admin makes a link, the screen shows the code, members check in with it', async t => {
+  const s = await startServer(t);
+  const deskCode = async body => {
+    const r = await fetch(`${s.base}/api/gym/desk/code`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json() };
+  };
+  assert.equal((await s.get(PRIYA, '/api/gym/me')).body.desk, false);
+  assert.equal((await s.post(PRIYA, '/api/gym/checkin', { code: 'ABCDEFGHJK' })).body.code, 'desk-off');
+  assert.equal((await s.post(RAHUL, '/api/gym/desk', { on: true })).status, 403);
+  const made = await s.post(OWNER, '/api/gym/desk', { on: true });
+  assert.equal(made.status, 200);
+  const key = made.body.desk.key;
+  assert.equal((await s.get(OWNER, '/api/gym/desk')).body.desk.key, key);
+  assert.equal((await s.get(PRIYA, '/api/gym/me')).body.desk, true);
+
+  // The screen needs the key, nothing else.
+  assert.equal((await deskCode({ key: 'wrong' })).body.code, 'desk-off');
+  const shown = await deskCode({ key, since: Date.now() - 3600e3 });
+  assert.equal(shown.status, 200);
+  assert.equal(shown.body.today, 0);
+
+  assert.equal((await s.post(PRIYA, '/api/gym/checkin', { code: 'ABCDEFGHJK' })).body.code, 'stale-code');
+  const first = await s.post(PRIYA, '/api/gym/checkin', { code: shown.body.code });
+  assert.deepEqual([first.status, first.body.already, first.body.visits.length], [200, false, 1]);
+  assert.equal((await s.post(PRIYA, '/api/gym/checkin', { code: shown.body.code })).body.already, true);
+  await s.post(RAHUL, '/api/gym/checkin', { code: (await deskCode({ key })).body.code });
+  assert.equal((await deskCode({ key, since: Date.now() - 3600e3 })).body.today, 2);
+  assert.equal((await s.get(PRIYA, '/api/gym/visits')).body.visits.length, 1);
+
+  // Her trainer sees her visits; a new link ends the old one.
+  await s.post(OWNER, '/api/gym/trainer', { id: AMAN, trainer: true });
+  await s.post(PRIYA, '/api/gym/link', { code: 'AMAN01', consent: true });
+  assert.equal((await s.get(AMAN, `/api/gym/client?id=${PRIYA}`)).body.visits.length, 1);
+  assert.equal((await s.get(AMAN, '/api/gym/clients')).body.clients[0].visits.length, 1);
+  await s.post(OWNER, '/api/gym/desk', { on: true });
+  assert.equal((await deskCode({ key })).status, 404);
+  await s.post(OWNER, '/api/gym/desk', { on: false });
+  assert.equal((await s.get(OWNER, '/api/gym/desk')).body.desk, null);
 });

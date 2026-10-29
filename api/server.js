@@ -2941,7 +2941,7 @@ const routes = {
   ...coachRoutes({ json, readBody, readSession, requireAdmin }),
 
   /* ---------- CADENCE: trainers and the members who share with them (gym/routes.js) ---------- */
-  ...gymRoutes({ json, readBody, readSession, requireAdmin, audit, users: () => db.users, readState, records, dataDir: DATA, atomicWrite, writeStateFor }),
+  ...gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, audit, users: () => db.users, readState, records, dataDir: DATA, atomicWrite, writeStateFor, sendPush }),
 
   /* ---------- photos & videos ---------- */
   // Absent, not refusing, when MEDIA_UPLOADS=0: a 404 is what a server from before the feature

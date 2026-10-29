@@ -17,7 +17,7 @@ export function ClientsCard() {
   }, [user?.id])
   if (!d) return null
   const lines = d.clients.map(c => clientLine(c))
-  const slipping = lines.filter(c => c.attention).length
+  const slipping = lines.filter(c => c.needs).length
   return <div className="card tappable" style={{ cursor: 'pointer' }} role="button" tabIndex={0}
     onClick={() => nav('/gym/clients')} onKeyDown={e => { if (e.key === 'Enter') nav('/gym/clients') }}>
     <div className="row between">
@@ -25,7 +25,7 @@ export function ClientsCard() {
         <div className="small muted" style={{ fontWeight: 600 }}>{gt('YOUR CLIENTS')}</div>
         <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>{lines.length}</div>
         <div className="small" style={{ color: slipping ? 'var(--orange)' : 'var(--label-2)' }}>
-          {slipping ? gt('{0} need attention', slipping) : gt('Everyone trained this week')}</div>
+          {slipping ? gt('{0} need attention', slipping) : gt('Everyone is on track')}</div>
       </div>
       <Icon name="chevronRight" style={{ color: 'var(--label-3)' }} />
     </div>

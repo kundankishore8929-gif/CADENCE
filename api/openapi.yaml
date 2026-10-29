@@ -3313,6 +3313,9 @@ paths:
                 properties:
                   trainer: { type: object, nullable: true }
                   myTrainer: { type: object, nullable: true }
+                  desk: { type: boolean, description: Whether the gym has a front-desk check-in screen. }
+                  pt: { type: object, description: "The caller's PT packages (`packages`, oldest first), each with its sessions and which can still be flagged." }
+                  visits: { type: array, items: { type: integer }, description: "The caller's check-ins of the last 62 days, epoch ms." }
         '401': { $ref: '#/components/responses/Unauthorized' }
   /api/gym/link:
     post:
@@ -3436,6 +3439,238 @@ paths:
         '200': { description: '`removed` says whether there was one.' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { description: 'Not your client (`not-client`).' }
+  /api/gym/pt:
+    get:
+      tags: [gym]
+      operationId: gymPt
+      summary: "Admin: one member's PT packages"
+      description: The front desk's view, with the trainer the member shares with now (if any).
+      parameters:
+        - { name: member, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: '`member`, `trainer` and `packages` (oldest first, with their sessions).' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: No such user. }
+  /api/gym/pt/package:
+    post:
+      tags: [gym]
+      operationId: gymPtPackage
+      summary: 'Trainer or admin: add a PT package'
+      description: >-
+        A number of sessions for a member, counted from `start` (default today) until `expires`
+        (none = never). Counts only, no payments. The member's trainer adds one for a client; an
+        admin (the front desk) for any member. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member, total]
+              properties:
+                member: { type: string }
+                total: { type: integer, minimum: 1, maximum: 200 }
+                start: { type: string, format: date }
+                expires: { type: string, format: date, nullable: true }
+                note: { type: string, maxLength: 120 }
+      responses:
+        '200': { description: "The member's packages." }
+        '400': { description: 'A total outside 1–200 (`bad-total`), a start that is not a date (`bad-start`) or an expiry before the start (`bad-expiry`).' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'Not your client (`not-client`).' }
+  /api/gym/pt/package/remove:
+    post:
+      tags: [gym]
+      operationId: gymPtPackageRemove
+      summary: 'Trainer or admin: remove a package added by mistake'
+      description: Only while no session is counted on it. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+      responses:
+        '200': { description: "The member's packages." }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'No such package (`no-package`).' }
+        '409': { description: 'Sessions are counted on it (`has-sessions`).' }
+  /api/gym/pt/session:
+    post:
+      tags: [gym]
+      operationId: gymPtSession
+      summary: 'Trainer: count a PT session ("Session done")'
+      description: >-
+        Counts a session on day `d` against the client's oldest package that covers that day and
+        has sessions left. Only the trainer the member shares with now. The member gets a push
+        notification and can flag the session for 48 hours. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member, d]
+              properties:
+                member: { type: string }
+                d: { type: string, format: date }
+                again: { type: boolean, description: Count a second session on a day that already has one. }
+      responses:
+        '200': { description: "The new session (`session`) and the member's packages." }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'Not your client (`not-client`), or no package at all (`no-package`).' }
+        '409': { description: 'Already one that day (`same-day`), a day ahead (`future`), or no package covers the day: `used-up`, `expired`, `before-start`.' }
+  /api/gym/pt/session/undo:
+    post:
+      tags: [gym]
+      operationId: gymPtSessionUndo
+      summary: 'Trainer or admin: take a counted session back'
+      description: The trainer who counted it, within 24 hours; an admin at any time. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+      responses:
+        '200': { description: "The member's packages." }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'No such session (`no-session`).' }
+        '409': { description: 'Counted by another trainer (`not-yours`) or more than 24 hours ago (`too-late`).' }
+  /api/gym/pt/session/flag:
+    post:
+      tags: [gym]
+      operationId: gymPtSessionFlag
+      summary: "Member: \"this wasn't me\""
+      description: >-
+        The member says a counted session was not theirs, within 48 hours of the count. The
+        trainer is notified; the session stays counted until the front desk keeps or removes it.
+        Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+      responses:
+        '200': { description: "The caller's packages." }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'Not a session of yours (`no-session`).' }
+        '409': { description: 'More than 48 hours after the count (`too-late`).' }
+  /api/gym/pt/session/keep:
+    post:
+      tags: [gym]
+      operationId: gymPtSessionKeep
+      summary: 'Admin: keep a flagged session'
+      description: The front desk checked a flagged session and it stands. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+      responses:
+        '200': { description: "The member's packages." }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: 'No such session (`no-session`).' }
+        '409': { description: 'The session is not flagged (`not-flagged`).' }
+  /api/gym/desk:
+    get:
+      tags: [gym]
+      operationId: gymDesk
+      summary: "Admin: the front-desk screen's link"
+      responses:
+        '200': { description: '`desk`: its `key`, when it was made and by whom; null when there is none.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [gym]
+      operationId: gymDeskSet
+      summary: 'Admin: make a new desk link, or turn the desk screen off'
+      description: >-
+        `on: true` makes a new key for the desk screen's link (the old link stops at once);
+        `on: false` turns check-in off. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [on]
+              properties:
+                on: { type: boolean }
+      responses:
+        '200': { description: The desk, or null. }
+        '400': { description: '`on` missing.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/gym/desk/code:
+    post:
+      tags: [gym]
+      operationId: gymDeskCode
+      summary: 'Desk screen: the check-in code now'
+      description: >-
+        For the reception screen, which signs in to no account: the key from its link is the only
+        credential. The code changes every 30 seconds and a scan is accepted for the code shown and
+        the one before it.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key: { type: string }
+                since: { type: integer, description: "The screen's local midnight, epoch ms, for `today` (clamped to the last 36 hours)." }
+      responses:
+        '200': { description: '`code`, `msLeft` until it changes, `windowMs`, and `today`: members checked in since `since`.' }
+        '404': { description: 'No desk with that key (`desk-off`).' }
+  /api/gym/checkin:
+    post:
+      tags: [gym]
+      operationId: gymCheckin
+      summary: 'Member: check in with the desk code'
+      description: >-
+        One check-in per member per 3 hours: a second scan answers `already: true` with the first
+        one's time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        '200': { description: "`at`, `already`, and the caller's check-ins of the last 62 days (`visits`, epoch ms)." }
+        '400': { description: 'A code that is not on the screen now (`stale-code`).' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'The gym has no desk check-in (`desk-off`).' }
+  /api/gym/visits:
+    get:
+      tags: [gym]
+      operationId: gymVisits
+      summary: 'My check-ins of the last 62 days'
+      responses:
+        '200': { description: '`visits`, epoch ms, oldest first.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /api/gym/trainers:
     get:
       tags: [gym]

@@ -7,6 +7,7 @@ import Icon from '../components/Icon.jsx'
 import { confirmSheet } from '../sheets.jsx'
 import { fmtDate } from '../lib/format.js'
 import { gt, gymMe, linkTrainer, unlinkTrainer, linkError, gymAvailable, localDay } from './api.js'
+import { MemberPt } from './PtPackages.jsx'
 
 // What a trainer gets, and what they never get: said before the member agrees, and again while
 // they share (api/gym/routes.js strips the second list on the server).
@@ -72,6 +73,7 @@ export default function MyTrainer() {
       : err ? <div className="card small" role="alert">{err} <Button size="sm" icon="reset" onClick={load}>{gt('Try again')}</Button></div>
       : !me ? <div className="card small muted">{gt('Loading…')}</div>
       : <>
+        <MemberPt pt={me.pt} onChange={r => setMe(m => ({ ...m, pt: { packages: r.packages } }))} />
         {t ? <>
           <Section footer={gt('Sharing since {0}.', localDay(t.since) ? fmtDate(localDay(t.since), true, true) : '–')}>
             <Row icon="person" iconTint="var(--acc)" title={t.name} subtitle={gt('Your trainer · code {0}', t.code)} />

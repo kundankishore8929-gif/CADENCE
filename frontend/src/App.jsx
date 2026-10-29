@@ -71,6 +71,7 @@ const CoachSetup = lazyView(() => import('./views/CoachSetup.jsx'))
 const MyTrainer = lazyView(() => import('./gym/MyTrainer.jsx'))
 const Clients = lazyView(() => import('./gym/Clients.jsx'))
 const ClientDetail = lazyView(() => import('./gym/ClientDetail.jsx'))
+const DeskCheckIn = lazyView(() => import('./gym/CheckIn.jsx'))
 const StructuralBalance = lazyView(() => import('./views/StructuralBalance.jsx'))
 const ProgressPhotos = lazyView(() => import('./views/ProgressPhotos.jsx'))
 // The tabs and screens past Home (Stats, History, the Library, Settings, ...) as well: a start
@@ -321,6 +322,7 @@ function Shell() {
       <Route path="/gym/trainer" element={<MyTrainer />} />
       <Route path="/gym/clients" element={<Clients />} />
       <Route path="/gym/clients/:id" element={<ClientDetail />} />
+      <Route path="/gym/checkin" element={<DeskCheckIn />} />
       <Route path="*" element={<Navigate to="/home" replace />} />
     </Routes>
   ))
