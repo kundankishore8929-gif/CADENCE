@@ -5,3 +5,10 @@ data
 .env
 .git
 *.log
+# CADENCE: a pilot server's own files (deploy/pilot), and the media the images no longer carry
+deploy/pilot/data
+deploy/pilot/backups
+deploy/pilot/caddy-data
+deploy/pilot/caddy-config
+deploy/pilot/.env
+catalogue/media
