@@ -79,6 +79,7 @@ describe('the WhatsApp message', () => {
     expect(waNumber('')).toBe(null)
     expect(waLink('9876543210', 'Hi Priya')).toBe('https://wa.me/919876543210?text=Hi%20Priya')
     expect(waLink(null, 'x')).toBe(null)
+    expect(waNumber('7700 900123', '44')).toBe('447700900123')   // the gym's own country code (M5)
   })
   it('says what the member needs: back to the gym, or their next PT package', () => {
     expect(waText({ name: 'Priya Sharma', lastVisit: at(10, 20) }, today)).toMatch(/^Hi Priya, we haven’t seen you at the gym since 20 Oct/)
@@ -86,5 +87,6 @@ describe('the WhatsApp message', () => {
     expect(waText({ name: 'Neha', lastVisit: at(10, 29), pt: { live: 1, left: 2, expires: '2026-11-04', flagged: 0 } }, today))
       .toMatch(/^Hi Neha, you have 2 PT sessions left \(valid till 4 Nov\)/)
     expect(waText({ name: 'Om', joined: new Date(2026, 9, 1).toISOString() }, today)).toMatch(/We haven’t seen you yet/)
+    expect(waText({ name: 'Priya', lastVisit: at(10, 20) }, today, 'Iron Temple Gym')).toMatch(/^Hi Priya, we haven’t seen you at Iron Temple Gym since 20 Oct/)
   })
 })

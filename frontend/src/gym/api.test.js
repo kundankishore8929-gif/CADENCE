@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   clientLine, sortClients, agoLabel, daysSince, isoDaysAgo, gt, linkError, localDay,
-  ptAlerts, packageLine, currentPackage, localState, onThisCalendar, codeFromScan, visitsThisMonth, daysUntil, gymError, checkinUrl,
+  ptAlerts, packageLine, currentPackage, localState, onThisCalendar, codeFromScan, missedInRow, trainingAlerts, visitsThisMonth, daysUntil, gymError, checkinUrl,
 } from './api.js'
 import { deskKeyFrom } from './Desk.jsx'
 import { exerciseLine } from './ClientDetail.jsx'
@@ -135,5 +135,24 @@ describe('the desk check-in (M3)', () => {
     expect(visitsThisMonth(v, today)).toBe(2)
     expect(visitsThisMonth(undefined, today)).toBe(0)
     expect(clientLine({ lastWorkout: null, recent: [], visits: v }, today).visits).toBe(2)
+  })
+})
+
+describe('training alerts (M5)', () => {
+  const prog = { start: '2026-10-01', days: ['1', '4'] }   // Mondays and Thursdays
+  it('flags the last 2 planned sessions missed with nothing since', () => {
+    // Planned before today (Fri 30 Oct): Mon 26 and Thu 29.
+    expect(missedInRow({ programme: prog, recent: ['2026-10-22'] }, today)).toEqual(['2026-10-26', '2026-10-29'])
+    expect(missedInRow({ programme: prog, recent: ['2026-10-27'] }, today)).toBe(null)   // trained on the Tuesday instead
+    expect(missedInRow({ programme: null, recent: [] }, today)).toBe(null)
+    expect(missedInRow({ programme: { start: '2026-10-29', days: ['1', '4'] }, recent: [] }, today)).toBe(null)   // only one planned day yet
+  })
+  it('names stalled lifts and a new PR; a PR is good news, not a reason for attention', () => {
+    const lifts = { prs: [{ id: 'b', d: '2026-10-27' }], stalls: [{ id: 's' }, { id: 'r' }] }
+    expect(trainingAlerts({ lifts }, today).map(a => a.text)).toEqual(['2 lifts stalled', 'New PR this week'])
+    const happy = clientLine({ lastWorkout: '2026-10-29', recent: ['2026-10-29'], lifts: { prs: [{ id: 'b' }], stalls: [] } }, today)
+    expect(happy.alerts.map(a => a.kind)).toEqual(['pr'])
+    expect(happy.needs).toBe(false)
+    expect(clientLine({ lastWorkout: '2026-10-29', recent: ['2026-10-29'], lifts: { prs: [], stalls: [{ id: 's' }] } }, today).needs).toBe(true)
   })
 })

@@ -17,6 +17,9 @@ import * as P from '../gym/programme.js';
 import * as PT from '../gym/pt.js';
 import * as D from '../gym/desk.js';
 import { dashboard } from '../gym/dashboard.js';
+import * as B from '../gym/brand.js';
+import * as C from '../gym/coaching.js';
+import { liftAlerts } from '../gym/lifts.js';
 
 const records = v => (Array.isArray(v) ? v.filter(x => !!x && typeof x === 'object' && !Array.isArray(x)) : []);
 
@@ -97,8 +100,9 @@ test('a client line has the last workout, the last 40 days of dates and the late
     bodyweight: [{ d: '2026-10-28', w: 176 }, { d: '2026-10-01', w: 180 }] };
   assert.deepEqual(clientSummary(S, records, now), {
     workouts: 3, lastWorkout: '2026-10-29', recent: ['2026-10-02', '2026-10-29'], weight: { d: '2026-10-28', w: 176 }, unit: 'lb',
+    lifts: { prs: [], stalls: [] },
   });
-  assert.deepEqual(clientSummary(null, records, now), { workouts: 0, lastWorkout: null, recent: [], weight: null, unit: 'kg' });
+  assert.deepEqual(clientSummary(null, records, now), { workouts: 0, lastWorkout: null, recent: [], weight: null, unit: 'kg', lifts: { prs: [], stalls: [] } });
 });
 
 /* ---------- the routes, through server.js ---------- */
@@ -220,7 +224,7 @@ test('a member who stops sharing is gone from the trainer at once; so is everyon
   // What is on disk is roles, links, packages, the desk, phone numbers and ended links: no
   // training data is ever copied there. The three ended links are kept for retention (M4).
   const saved = JSON.parse(fs.readFileSync(path.join(s.dataDir, 'gym.json'), 'utf8'));
-  assert.deepEqual(Object.keys(saved).sort(), ['desk', 'links', 'packages', 'pastLinks', 'phones', 'programmes', 'trainers', 'v']);
+  assert.deepEqual(Object.keys(saved).sort(), ['desk', 'diets', 'links', 'notes', 'packages', 'pastLinks', 'phones', 'programmes', 'trainers', 'v']);
   assert.deepEqual(saved.pastLinks.map(l => l.member), [PRIYA, RAHUL, PRIYA]);
 });
 
@@ -636,4 +640,95 @@ test('dashboard and phone numbers are for admins; a phone number is digits with 
   assert.equal((await s.post(OWNER, '/api/gym/phone', { member: PRIYA, phone: '' })).body.phone, null);
   await s.post(PRIYA, '/api/gym/unlink');
   assert.deepEqual((await s.get(OWNER, '/api/gym/dashboard')).body.trainers[0].past.map(x => x.member), [PRIYA]);
+});
+
+/* ---------- M5: the gym's look, diet charts, notes, lift alerts ---------- */
+
+// The smallest real pictures: a 1×1 PNG, and the same bytes claiming to be something else.
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+test('the gym\'s look: a name, a #rrggbb colour, a country code, and a real PNG, JPEG or WebP logo', () => {
+  const b = B.emptyBrand();
+  assert.equal(B.updateBrand(b, { name: 'x'.repeat(41) }).error, 'bad-name');
+  assert.equal(B.updateBrand(b, { accent: 'red' }).error, 'bad-colour');
+  assert.equal(B.updateBrand(b, { cc: '+1234' }).error, 'bad-cc');
+  assert.equal(B.updateBrand(b, { logo: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=' }).error, 'bad-logo', 'never SVG');
+  assert.equal(B.updateBrand(b, { logo: PNG.replace('image/png', 'image/jpeg') }).error, 'bad-logo', 'checked by its bytes');
+  assert.equal(B.updateBrand(b, { logo: 'data:image/png;base64,' + Buffer.alloc(B.LOGO_MAX + 1, 1).toString('base64') }).error, 'logo-too-big');
+  const r = B.updateBrand(b, { name: '  Iron Temple Gym ', accent: '#FF6B00', cc: '+44', logo: PNG }).brand;
+  assert.deepEqual([r.name, r.accent, r.cc, r.logo === PNG], ['Iron Temple Gym', '#ff6b00', '44', true]);
+  assert.equal(B.updateBrand(r, { accent: null, logo: null }).brand.accent, null, 'back to CADENCE\'s own');
+  assert.deepEqual(B.normalizeBrand({ name: 5, accent: 'lime', cc: 'x', logo: 'nope' }), B.emptyBrand());
+});
+
+test('a diet chart keeps its numbers in range; notes are their author\'s and go when the sharing ends', () => {
+  assert.equal(C.cleanDiet({}).error, 'bad-diet', 'nothing in it');
+  assert.equal(C.cleanDiet({ calories: 20000 }).error, 'bad-diet');
+  assert.equal(C.cleanDiet({ water: -1 }).error, 'bad-diet');
+  const d = C.cleanDiet({ calories: '2200', protein: 120, water: 3.25, meals: { breakfast: ' Oats, 4 egg whites ', brunch: 'x' }, notes: 'No sugar' }).diet;
+  assert.deepEqual(d, { calories: 2200, protein: 120, water: 3.3, meals: { breakfast: 'Oats, 4 egg whites', lunch: '', dinner: '', snacks: '' }, notes: 'No sugar' });
+
+  const g = G.emptyGym();
+  G.makeTrainer(g, { id: 't1', name: 'Aman' });
+  G.link(g, 'm1', 'AMAN01');
+  assert.equal(C.addNote(g, 'm1', 't1', '   ').error, 'empty');
+  const n = C.addNote(g, 'm1', 't1', 'Knee pain, avoid lunges', new Date('2026-10-30T10:00:00Z')).note;
+  C.addNote(g, 'm1', 't1', 'Wants to run 5 km by December', new Date('2026-10-30T11:00:00Z'));
+  assert.deepEqual(C.notesFor(g, 'm1', 't1').map(x => x.text), ['Wants to run 5 km by December', 'Knee pain, avoid lunges']);
+  assert.equal(C.removeNote(g, n.id, 't2'), null, 'only its author');
+  assert.equal(C.notesFor(g, 'm1', 't1').length, 2);
+  C.setDiet(g, 'm1', 't1', d);
+  G.unlink(g, 'm1');
+  assert.equal(g.notes.length, 0, 'the notes go with the sharing');
+  assert.equal(g.diets.m1.calories, 2200, 'the member keeps the diet chart');
+});
+
+test('lift alerts: a new best this week, and a lift stuck for 3 sessions', () => {
+  const now = Date.parse('2026-10-30T12:00:00Z');
+  const w = (d, id, kg, r = 5) => ({ d, entries: [{ id, sets: [{ w: kg, r, done: true }, { w: 20, r: 10, done: true, warmup: true }] }] });
+  const workouts = [
+    w('2026-10-01', 'bench', 60), w('2026-10-08', 'bench', 62.5), w('2026-10-27', 'bench', 65),     // PR on the 27th
+    w('2026-10-02', 'squat', 100), w('2026-10-09', 'squat', 95), w('2026-10-16', 'squat', 100),
+    w('2026-10-23', 'squat', 97.5),                                                              // 3 sessions not past 100
+    w('2026-09-01', 'row', 50), w('2026-09-08', 'row', 45), w('2026-09-15', 'row', 45), w('2026-09-22', 'row', 45),  // stuck, but not done lately
+  ];
+  const l = liftAlerts(workouts, now);
+  assert.deepEqual(l.prs, [{ id: 'bench', d: '2026-10-27', w: 65, r: 5 }]);
+  assert.deepEqual(l.stalls, [{ id: 'squat', since: '2026-10-02', best: { w: 100, r: 5 } }]);
+  assert.deepEqual(liftAlerts([w('2026-10-27', 'bench', 65)], now), { prs: [], stalls: [] }, 'one session is no record');
+});
+
+test('brand is public and the owner\'s; a diet and notes are the client\'s trainer\'s', async t => {
+  const s = await startServer(t);
+  assert.deepEqual((await (await fetch(`${s.base}/api/gym/brand`)).json()).name, '');
+  assert.equal((await s.post(PRIYA, '/api/gym/brand', { name: 'Mine' })).status, 403);
+  assert.equal((await s.post(OWNER, '/api/gym/brand', { name: 'Iron Temple Gym', accent: '#ff6b00', logo: PNG })).status, 200);
+  const pub = await (await fetch(`${s.base}/api/gym/brand`)).json();
+  assert.deepEqual([pub.name, pub.accent, pub.cc, pub.logo === PNG], ['Iron Temple Gym', '#ff6b00', '91', true]);
+  assert.equal((await s.post(OWNER, '/api/gym/brand', { logo: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=' })).body.code, 'bad-logo');
+
+  await s.post(OWNER, '/api/gym/trainer', { id: AMAN, trainer: true });
+  await s.post(PRIYA, '/api/gym/link', { code: 'AMAN01', consent: true });
+  await s.post(RAHUL, '/api/gym/link', { code: 'AMAN01', consent: true });
+  assert.equal((await s.post(RAHUL, '/api/gym/diet', { member: PRIYA, diet: { calories: 1800 } })).status, 404);
+  assert.equal((await s.post(AMAN, '/api/gym/diet', { member: PRIYA, diet: { calories: 99999 } })).body.code, 'bad-diet');
+  const set = await s.post(AMAN, '/api/gym/diet', { member: PRIYA, diet: { calories: 1800, protein: 90, meals: { lunch: 'Dal, rice, salad' } } });
+  assert.deepEqual([set.body.diet.calories, set.body.diet.trainerName, set.body.diet.current], [1800, 'Aman Verma', true]);
+  assert.equal((await s.post(AMAN, '/api/gym/diet', { member: RAHUL, from: PRIYA })).body.diet.meals.lunch, 'Dal, rice, salad', 'copied');
+  assert.equal((await s.get(PRIYA, '/api/gym/me')).body.diet.calories, 1800);
+
+  const noted = await s.post(AMAN, '/api/gym/note', { member: PRIYA, text: 'Knee pain, avoid lunges' });
+  assert.deepEqual(noted.body.notes.map(n => n.text), ['Knee pain, avoid lunges']);
+  assert.equal((await s.post(RAHUL, '/api/gym/note', { member: PRIYA, text: 'x' })).status, 404);
+  const detail = (await s.get(AMAN, `/api/gym/client?id=${PRIYA}`)).body;
+  assert.deepEqual([detail.notes.length, detail.diet.protein, Array.isArray(detail.lifts.prs)], [1, 90, true]);
+  assert.ok(!JSON.stringify((await s.get(PRIYA, '/api/gym/me')).body).includes('Knee pain'), 'the member never reads the notes');
+  assert.ok(!JSON.stringify((await s.get(OWNER, '/api/gym/dashboard')).body).includes('Knee pain'), 'nor does the owner');
+  assert.equal((await s.post(RAHUL, '/api/gym/note/remove', { id: noted.body.notes[0].id })).status, 404);
+
+  await s.post(PRIYA, '/api/gym/unlink');
+  const me = (await s.get(PRIYA, '/api/gym/me')).body;
+  assert.deepEqual([me.diet.calories, me.diet.current], [1800, false], 'she keeps the chart, no longer updated');
+  const saved = JSON.parse(fs.readFileSync(path.join(s.dataDir, 'gym.json'), 'utf8'));
+  assert.equal(saved.notes.length, 0, 'and Aman\'s notes on her are gone');
 });

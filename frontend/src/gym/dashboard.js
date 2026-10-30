@@ -115,25 +115,26 @@ export function levels(values) {
 // Until the gym's own country comes with its settings (M5): a 10-digit number is Indian.
 export const DEFAULT_CC = '91'
 
-/** The number wa.me wants: the country code and digits, nothing else. */
-export function waNumber(phone) {
+/** The number wa.me wants: the country code (the gym's, M5) and digits, nothing else. */
+export function waNumber(phone, cc = DEFAULT_CC) {
   const s = String(phone || '').trim()
   const d = s.replace(/\D/g, '')
   if (!d) return null
   if (s.startsWith('+')) return d
-  if (d.length === 10) return DEFAULT_CC + d
-  if (d.length === 11 && d.startsWith('0')) return DEFAULT_CC + d.slice(1)
+  if (d.length === 10) return cc + d
+  if (d.length === 11 && d.startsWith('0')) return cc + d.slice(1)
   return d
 }
 
-export const waLink = (phone, text) => { const n = waNumber(phone); return n ? 'https://wa.me/' + n + '?text=' + encodeURIComponent(text) : null }
+export const waLink = (phone, text, cc) => { const n = waNumber(phone, cc); return n ? 'https://wa.me/' + n + '?text=' + encodeURIComponent(text) : null }
 
 /**
  * The message the owner starts from, by what the member needs: a renewal when the PT package
  * runs out, a nudge when they slipped, a gentler one after a long gap. The owner edits it in
  * WhatsApp before sending; the app sends nothing itself.
  */
-export function waText(m, today = new Date()) {
+export function waText(m, today = new Date(), gym = '') {
+  const at = gym || gt('the gym')
   const first = String(m.name || '').trim().split(/\s+/)[0] || ''
   const status = statusOf(m, today)
   const last = lastActive(m)
@@ -143,8 +144,8 @@ export function waText(m, today = new Date()) {
       ? gt('Hi {0}, your PT package is finished. Shall we set up the next one?', first)
       : gt('Hi {0}, you have {1} PT sessions left{2}. Shall we plan the next package?', first, m.pt.left, m.pt.expires ? gt(' (valid till {0})', fmtDate(m.pt.expires)) : '')
   }
-  if (status === 'active') return gt('Hi {0}, great to see you at the gym this week. Keep it going!', first)
-  if (!last) return gt('Hi {0}, welcome to the gym! We haven’t seen you yet. When can we expect you? Reply here and we’ll help you get started.', first)
-  if (status === 'slipping') return gt('Hi {0}, we haven’t seen you at the gym since {1}. All good? We’d love to see you back this week.', first, fmtDate(last))
+  if (status === 'active') return gt('Hi {0}, great to see you at {1} this week. Keep it going!', first, at)
+  if (!last) return gt('Hi {0}, welcome to {1}! We haven’t seen you yet. When can we expect you? Reply here and we’ll help you get started.', first, at)
+  if (status === 'slipping') return gt('Hi {0}, we haven’t seen you at {2} since {1}. All good? We’d love to see you back this week.', first, fmtDate(last), at)
   return gt('Hi {0}, it’s been a while since your last visit ({1}). Is anything stopping you? Reply here and we’ll help you get back on track.', first, fmtDate(last))
 }

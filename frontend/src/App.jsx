@@ -6,6 +6,7 @@ import { useUI } from './store/useUI.js'
 import { bindUI } from './components/ui.jsx'
 import { setWeightDecimals } from './lib/format.js'
 import { accentValue, applyAccent } from './lib/accent.js'
+import { useGymBrand, gymAccent } from './gym/brand-live.js'
 import { seasonAccent } from './lib/seasonal.js'
 import { setLang, useLang, baseLang } from './lib/i18n.js'
 import { effectiveLang } from './lib/default-lang.js'
@@ -73,6 +74,7 @@ const Clients = lazyView(() => import('./gym/Clients.jsx'))
 const ClientDetail = lazyView(() => import('./gym/ClientDetail.jsx'))
 const DeskCheckIn = lazyView(() => import('./gym/CheckIn.jsx'))
 const GymDashboard = lazyView(() => import('./gym/GymDashboard.jsx'))
+const GymSettings = lazyView(() => import('./gym/GymSettings.jsx'))
 const StructuralBalance = lazyView(() => import('./views/StructuralBalance.jsx'))
 const ProgressPhotos = lazyView(() => import('./views/ProgressPhotos.jsx'))
 // The tabs and screens past Home (Stats, History, the Library, Settings, ...) as well: a start
@@ -151,7 +153,9 @@ function Shell() {
   // A preset key, or the user's own colour as '#rrggbb' (lib/accent.js), already checked. A
   // seasonal theme's colours stand in for it while that theme shows, and only when chosen
   // (Settings → Look & Home → Seasonal themes); the saved accent itself is never touched.
-  const accent = seasonAccent(S) || accentValue(S)
+  // CADENCE: a member still on the default accent gets their gym's colour (src/gym/brand-live.js).
+  const gymBrand = useGymBrand()
+  const accent = seasonAccent(S) || gymAccent(accentValue(S), gymBrand)
   useEffect(() => { applyPrefs(S.theme, accent) }, [S.theme, accent])
   // 'system' needs to react live if the OS theme flips while the app is open, not just on
   // the next mount — a fixed 'dark'/'light' choice never re-fires this since matchMedia
@@ -325,6 +329,7 @@ function Shell() {
       <Route path="/gym/clients/:id" element={<ClientDetail />} />
       <Route path="/gym/checkin" element={<DeskCheckIn />} />
       <Route path="/gym/dashboard" element={user?.admin ? <GymDashboard /> : <Navigate to="/home" replace />} />
+      <Route path="/gym/settings" element={user?.admin ? <GymSettings /> : <Navigate to="/home" replace />} />
       <Route path="*" element={<Navigate to="/home" replace />} />
     </Routes>
   ))

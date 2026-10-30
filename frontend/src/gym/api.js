@@ -1,6 +1,7 @@
 // CADENCE's gym layer on the client: the calls to api/gym/routes.js and the small rules the
 // screens share. Kept out of openGym's own lib/ so its releases merge in without clashes.
 import { api, appBase, remoteAuth } from '../lib/api.js'
+import { plannedDays } from './adherence.js'
 
 // The gym screens use their own string function instead of openGym's t(): openGym's language
 // packs stay exactly as they ship. English for now; a pack per language can come later.
@@ -46,6 +47,12 @@ export function gymDashboard(fresh = false) {
   return dash.p
 }
 export const setPhone = (member, phone) => post('/api/gym/phone', { member, phone })
+// M5: the gym's look, a client's diet chart and the trainer's notes
+export const saveBrand = b => post('/api/gym/brand', b)
+export const saveDiet = (member, diet) => post('/api/gym/diet', { member, diet })
+export const copyDiet = (member, from) => post('/api/gym/diet', { member, from })
+export const addNote = (member, text) => post('/api/gym/note', { member, text })
+export const removeNote = id => post('/api/gym/note/remove', { id })
 
 // What the server answers for a refused link, in words.
 export function linkError(e, code) {
@@ -79,6 +86,12 @@ const GYM_ERRORS = {
   'stale-code': 'That code has changed. Scan the screen again.',
   'desk-off': 'Check-in at the desk is off at this gym.',
   'bad-phone': 'That is not a phone number. Use 10 digits, or + and the country code.',
+  'bad-logo': 'The logo has to be a PNG, JPEG or WebP picture.',
+  'logo-too-big': 'That logo is too big. Pick a smaller picture.',
+  'bad-name': 'A gym name has at most 40 characters.',
+  'bad-cc': 'A country code is 1 to 3 digits.',
+  'bad-diet': 'Fill in a target or a meal, with numbers in range.',
+  'no-diet': 'That client has no diet chart yet.',
 }
 export function gymError(e) {
   const c = e?.data?.code
@@ -141,6 +154,33 @@ export function ptAlerts(pt, today = new Date()) {
   return out
 }
 
+/**
+ * The last 2 planned days of a client's programme, both missed and nothing trained since (M5):
+ * those two days, or null. `programme` and `recent` as in the client list.
+ */
+export function missedInRow(c, today = new Date()) {
+  if (!c?.programme) return null
+  const week = Object.fromEntries((c.programme.days || []).map(d => [d, ['x']]))
+  const planned = plannedDays({ start: c.programme.start, week }, isoDaysAgo(40, today), isoDaysAgo(1, today))
+  if (planned.length < 2) return null
+  const [a, b] = planned.slice(-2)
+  return (c.recent || []).some(d => d >= a) ? null : [a, b]
+}
+
+/**
+ * What a client's training says (M5): 2 planned sessions missed in a row, a lift that stalled
+ * (api/gym/lifts.js), and a new personal record this week, which is good news (`good`), not a
+ * reason for attention.
+ */
+export function trainingAlerts(c, today = new Date()) {
+  const out = []
+  if (missedInRow(c, today)) out.push({ kind: 'missed', text: gt('Missed 2 planned sessions') })
+  const stalls = c?.lifts?.stalls?.length || 0
+  if (stalls) out.push({ kind: 'stall', text: stalls === 1 ? gt('1 lift stalled') : gt('{0} lifts stalled', stalls) })
+  if (c?.lifts?.prs?.length) out.push({ kind: 'pr', good: true, text: gt('New PR this week') })
+  return out
+}
+
 /** Check-ins (epoch ms) in this calendar month, on this device's calendar. */
 export function visitsThisMonth(visits, today = new Date()) {
   const first = new Date(today.getFullYear(), today.getMonth(), 1).getTime()
@@ -156,7 +196,7 @@ export function clientLine(c, today = new Date()) {
   const recent = Array.isArray(c.recent) ? c.recent : []
   const gap = daysSince(c.lastWorkout, today)
   const attention = gap == null || gap >= ATTENTION_DAYS
-  const alerts = ptAlerts(c.pt, today)
+  const alerts = [...ptAlerts(c.pt, today), ...trainingAlerts(c, today)]
   return {
     ...c,
     last7: recent.filter(d => d >= week).length,
@@ -165,7 +205,7 @@ export function clientLine(c, today = new Date()) {
     gap,
     attention,
     alerts,
-    needs: attention || alerts.length > 0,
+    needs: attention || alerts.some(a => !a.good),
   }
 }
 

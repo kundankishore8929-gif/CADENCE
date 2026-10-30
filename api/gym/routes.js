@@ -19,6 +19,9 @@
  *     member checks in by scanning its code. Visits are each member's own, and their trainer's.
  *   - the owner's dashboard (M4, dashboard.js) is for admins: every member's status, the trainers'
  *     numbers, the check-ins. Members' phone numbers (for a WhatsApp message) are seen by admins only.
+ *   - the gym's name, logo and colour (M5, brand.js) are public: the sign-in screen shows them;
+ *   - a trainer's diet chart (the member reads it) and notes (nobody else does) per client (M5,
+ *     coaching.js); lift alerts (a new PR, a stalled lift) come with each client (M5, lifts.js).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,6 +30,9 @@ import { buildProgramme, applyProgramme, removeProgramme, releaseProgramme } fro
 import * as PT from './pt.js';
 import * as D from './desk.js';
 import { dashboard } from './dashboard.js';
+import * as B from './brand.js';
+import * as C from './coaching.js';
+import { liftAlerts } from './lifts.js';
 
 // What a trainer never gets from a member's workouts and measurements, at any depth: photos and
 // videos (`media`), the member's own notes, and the sync bookkeeping (`_ts`, `_f`, …).
@@ -58,7 +64,16 @@ export function clientSummary(S, records, now = Date.now()) {
     recent: dates.filter(d => d >= cutoff),
     weight: last ? { d: last.d, w: last.w } : null,
     unit: S?.unit === 'lb' ? 'lb' : 'kg',
+    lifts: liftsOf(S, records, now),
   };
+}
+
+/** A client's lift alerts (lifts.js), their own exercises named, as only the app knows the rest. */
+function liftsOf(S, records, now) {
+  const l = liftAlerts(records(S?.workouts), now);
+  const names = new Map(records(S?.customEx).map(c => [String(c.id), typeof c.n === 'string' ? c.n : '']));
+  const named = x => (names.has(x.id) ? { ...x, n: names.get(x.id) } : x);
+  return { prs: l.prs.map(named), stalls: l.stalls.map(named) };
 }
 
 /** Everything a trainer may see of one client. */
@@ -100,6 +115,13 @@ const PT_ERROR = {
   'not-flagged': 'that session is not flagged',
 };
 const VISIT_DAYS = 62;
+const BRAND_ERROR = {
+  'bad-name': 'a gym name has at most 40 characters',
+  'bad-colour': 'a colour is #rrggbb',
+  'bad-cc': 'a country code is 1 to 3 digits',
+  'bad-logo': 'the logo has to be a PNG, JPEG or WebP picture',
+  'logo-too-big': 'the logo is over 200 KB: pick a smaller picture',
+};
 const shortDay = d => new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 export function gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, audit, users, readState, records, dataDir, atomicWrite, writeStateFor, sendPush, stateFile, livePresence }) {
@@ -130,6 +152,21 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, 
   const ptFor = (g, member, viewer, admin = false) => PT.ptView(g, member, { nameOf, viewer, admin, now: new Date() });
   const ptFail = (res, r) => json(res, ['no-session', 'no-package'].includes(r.error) ? 404 : 409, { error: PT_ERROR[r.error] || r.error, code: r.error });
   const checkins = D.checkinLog({ dataDir, atomicWrite });
+  // The gym's look, in its own file (brand.js).
+  const brandFile = path.join(dataDir, 'gym-brand.json');
+  let brand = null;
+  const loadBrand = () => {
+    if (!brand) { let raw = null; try { raw = JSON.parse(fs.readFileSync(brandFile, 'utf8')); } catch { /* none yet */ } brand = B.normalizeBrand(raw); }
+    return brand;
+  };
+  const brandView = b => ({ name: b.name, accent: b.accent, cc: b.cc, logo: b.logo, updatedAt: b.updatedAt });
+  // A client's diet chart as the trainer and the member read it.
+  const dietView = (g, member) => {
+    const d = g.diets[member];
+    if (!d) return null;
+    return { ...d, trainerName: d.trainer ? nameOf(d.trainer) : '', current: !!d.trainer && G.linkOf(g, member)?.trainer === d.trainer };
+  };
+  const myClient = (g, me, member) => !!(G.trainerOf(g, me.id) && G.clientsOf(g, me.id).some(l => l.member === member));
   const visitsOf = member => checkins.of(member, Date.now() - VISIT_DAYS * 86400e3);
   // Pushes are a courtesy: a member without notifications still sees everything in the app.
   const notify = (uid, payload) => { Promise.resolve().then(() => sendPush?.(uid, payload)).catch(() => {}); };
@@ -163,6 +200,7 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, 
         desk: !!g.desk,
         pt: ptFor(g, me.id, me.id),
         visits: visitsOf(me.id),
+        diet: dietView(g, me.id),
       });
     },
 
@@ -205,7 +243,7 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, 
           return {
             id: u.id, name: u.name, since: l.since, ...clientSummary(readState(u.id), records),
             programme: p ? { start: p.start, days: Object.keys(p.week) } : null,
-            pt: PT.ptSummary(g, u.id), visits: visits.get(u.id) || [],
+            pt: PT.ptSummary(g, u.id), visits: visits.get(u.id) || [], hasDiet: !!g.diets[u.id],
           };
         });
       json(res, 200, { code: mine.code, clients, now: Date.now() });
@@ -222,6 +260,8 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, 
       json(res, 200, {
         client: { id: u.id, name: u.name, since: l.since }, ...clientDetail(readState(u.id), records),
         programme: programmeView(G.programmeOf(g, u.id)), pt: ptFor(g, u.id, me.id), visits: visitsOf(u.id),
+        lifts: liftsOf(readState(u.id), records, Date.now()),
+        diet: dietView(g, u.id), notes: C.notesFor(g, u.id, me.id).map(n => ({ id: n.id, at: n.at, text: n.text })),
       });
     },
 
@@ -424,6 +464,71 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, 
     'GET /api/gym/visits': async (req, res) => {
       const me = signedIn(req, res); if (!me) return;
       json(res, 200, { visits: visitsOf(me.id) });
+    },
+
+    /* ---------- the gym's look (M5) ---------- */
+    // Public: the sign-in screen and the desk screen show the gym before anyone signs in.
+    'GET /api/gym/brand': async (req, res) => {
+      json(res, 200, brandView(loadBrand()));
+    },
+
+    'POST /api/gym/brand': async (req, res) => {
+      const admin = requireAdmin(req, res); if (!admin) return;
+      const body = await readBody(req);
+      const r = B.updateBrand(loadBrand(), body && typeof body === 'object' ? body : {});
+      if (r.error) return json(res, 400, { error: BRAND_ERROR[r.error], code: r.error });
+      atomicWrite(brandFile, JSON.stringify(r.brand), 0o600);
+      brand = r.brand;
+      audit(req, 'gym.brand', { user: admin, msg: Object.keys(body).filter(k => k in B.emptyBrand()).join(', ') });
+      json(res, 200, brandView(brand));
+    },
+
+    /* ---------- a trainer's diet chart and notes for a client (M5) ---------- */
+    // `diet` sets the chart, `from` copies another client's, `diet: null` takes it away.
+    'POST /api/gym/diet': async (req, res) => {
+      const me = signedIn(req, res); if (!me) return;
+      const body = await readBody(req);
+      const member = String(body.member || '');
+      const g = load();
+      if (!myClient(g, me, member) || !userById(member)) return json(res, 404, { error: 'not your client', code: 'not-client' });
+      if (body.diet === null) {
+        delete g.diets[member];
+      } else {
+        let src = body.diet;
+        if (body.from != null) {
+          const from = String(body.from);
+          if (!myClient(g, me, from) || !g.diets[from]) return json(res, 404, { error: 'that client has no diet chart', code: 'no-diet' });
+          src = g.diets[from];
+        }
+        const c = C.cleanDiet(src);
+        if (c.error) return json(res, 400, { error: 'a diet chart needs a target or a meal, with numbers in range', code: c.error });
+        C.setDiet(g, member, me.id, c.diet);
+      }
+      save();
+      audit(req, 'gym.diet', { user: me, target: userById(member), msg: body.diet === null ? 'removed' : body.from != null ? 'copied' : 'set' });
+      json(res, 200, { diet: dietView(g, member) });
+    },
+
+    'POST /api/gym/note': async (req, res) => {
+      const me = signedIn(req, res); if (!me) return;
+      const body = await readBody(req);
+      const member = String(body.member || '');
+      const g = load();
+      if (!myClient(g, me, member)) return json(res, 404, { error: 'not your client', code: 'not-client' });
+      const r = C.addNote(g, member, me.id, body.text);
+      if (r.error) return json(res, 400, { error: r.error === 'empty' ? 'write something first' : 'at most 200 notes a client', code: r.error });
+      save();
+      json(res, 200, { notes: C.notesFor(g, member, me.id).map(n => ({ id: n.id, at: n.at, text: n.text })) });
+    },
+
+    'POST /api/gym/note/remove': async (req, res) => {
+      const me = signedIn(req, res); if (!me) return;
+      const body = await readBody(req);
+      const g = load();
+      const n = C.removeNote(g, String(body.id || ''), me.id);
+      if (!n) return json(res, 404, { error: 'no such note', code: 'no-note' });
+      save();
+      json(res, 200, { notes: C.notesFor(g, n.member, me.id).map(x => ({ id: x.id, at: x.at, text: x.text })) });
     },
 
     /* ---------- the owner's dashboard (M4) ---------- */

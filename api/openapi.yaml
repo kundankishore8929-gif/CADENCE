@@ -3316,6 +3316,7 @@ paths:
                   desk: { type: boolean, description: Whether the gym has a front-desk check-in screen. }
                   pt: { type: object, description: "The caller's PT packages (`packages`, oldest first), each with its sessions and which can still be flagged." }
                   visits: { type: array, items: { type: integer }, description: "The caller's check-ins of the last 62 days, epoch ms." }
+                  diet: { type: object, nullable: true, description: "The diet chart the caller's trainer set (`current: false` once the sharing ended)." }
         '401': { $ref: '#/components/responses/Unauthorized' }
   /api/gym/link:
     post:
@@ -3713,6 +3714,105 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { description: No such user. }
+  /api/gym/brand:
+    get:
+      tags: [gym]
+      operationId: gymBrand
+      summary: "The gym's name, logo and colour"
+      description: Public, so the sign-in screen and the desk screen can show the gym before anyone signs in.
+      security: []
+      responses:
+        '200': { description: '`name`, `accent` (#rrggbb or null), `cc` (the country code for phone numbers), `logo` (a data: URL or null), `updatedAt`.' }
+    post:
+      tags: [gym]
+      operationId: gymBrandSet
+      summary: "Admin: set the gym's name, logo and colour"
+      description: >-
+        Only the fields sent change. `accent: null` and `logo: null` go back to CADENCE's own. The
+        logo is a data: URL of a PNG, JPEG or WebP of at most 200 KB, checked by its bytes; never
+        SVG. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 40 }
+                accent: { type: string, nullable: true, pattern: '^#[0-9a-fA-F]{6}$' }
+                cc: { type: string, description: 1 to 3 digits, + allowed. }
+                logo: { type: string, nullable: true }
+      responses:
+        '200': { description: The brand as stored. }
+        '400': { description: '`bad-name`, `bad-colour`, `bad-cc`, `bad-logo` or `logo-too-big`.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/gym/diet:
+    post:
+      tags: [gym]
+      operationId: gymDiet
+      summary: "Trainer: a client's diet chart"
+      description: >-
+        `diet` sets it (calories, protein in g, water in litres, breakfast / lunch / dinner / snacks,
+        notes), `from` copies another of the trainer's clients' charts, `diet: null` takes it away.
+        The member reads it in My trainer and keeps the last one when the sharing ends. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member]
+              properties:
+                member: { type: string }
+                diet: { type: object, nullable: true }
+                from: { type: string }
+      responses:
+        '200': { description: The chart as stored, or null. }
+        '400': { description: 'Nothing in it, or a number out of range (`bad-diet`).' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'Not your client (`not-client`), or the client to copy from has no chart (`no-diet`).' }
+  /api/gym/note:
+    post:
+      tags: [gym]
+      operationId: gymNote
+      summary: 'Trainer: a private note on a client'
+      description: >-
+        Only its author ever reads it: not the member, not the owner, not another trainer. The notes
+        on a member are deleted when the sharing ends.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member, text]
+              properties:
+                member: { type: string }
+                text: { type: string, maxLength: 500 }
+      responses:
+        '200': { description: "The trainer's notes on that client, newest first." }
+        '400': { description: 'Empty (`empty`), or 200 notes already (`too-many`).' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'Not your client (`not-client`).' }
+  /api/gym/note/remove:
+    post:
+      tags: [gym]
+      operationId: gymNoteRemove
+      summary: 'Trainer: delete one of their notes'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+      responses:
+        '200': { description: "The trainer's notes on that client." }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'Not a note of yours (`no-note`).' }
   /api/gym/trainers:
     get:
       tags: [gym]

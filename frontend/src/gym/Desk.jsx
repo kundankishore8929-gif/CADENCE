@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { renderQrToCanvas } from '../lib/qr.js'
 import { hideBoot } from '../lib/boot.js'
 import { BRAND } from './brand.js'
+import { useGymBrand, gymName } from './brand-live.js'
 import { gt, deskCode, checkinUrl } from './api.js'
 import './gym.css'
 
@@ -22,6 +23,7 @@ export default function Desk({ hash = location.hash }) {
   const [d, setD] = useState(null)                      // { code, msLeft, windowMs, today, got }
   const [state, setState] = useState(key ? 'loading' : 'no-key')   // ok | off | offline
   const [now, setNow] = useState(Date.now())
+  const gym = useGymBrand()
 
   useEffect(() => { hideBoot(); document.documentElement.dataset.theme = 'dark' }, [])
 
@@ -67,9 +69,9 @@ export default function Desk({ hash = location.hash }) {
     : state === 'off' ? gt('This desk link is off. Ask the gym owner for the new one (admin page → Front desk).')
     : state === 'offline' ? gt('No connection. Reconnecting…') : null
 
-  return <div className="gym-desk">
+  return <div className="gym-desk" style={gym?.accent ? { '--desk-acc': gym.accent } : null}>
     <div className="gym-desk-top">
-      <span className="gym-desk-brand">{BRAND.name}</span>
+      <span className="gym-desk-brand">{gym?.logo && <img src={gym.logo} alt="" />}{gymName(gym)}</span>
       <span className="gym-desk-clock">{clock(now)}</span>
     </div>
     <div className="gym-desk-main">

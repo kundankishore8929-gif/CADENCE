@@ -8,6 +8,7 @@ import { fmtDate, fmtNum } from '../lib/format.js'
 import { gt, gymDashboard, gymError, keepSession, undoSession, isoDaysAgo, localDay, clientLine, agoLabel } from './api.js'
 import { STATUSES, statusOf, lastActive, isMember, trainerStats, visitsByDay, busyHours, levels, waLink, waText, DAYS, HOURS } from './dashboard.js'
 import { PhoneSheet } from './Phone.jsx'
+import { gymBrand } from './brand-live.js'
 import './gym.css'
 
 const TABS = [['today', 'Today'], ['members', 'Members'], ['trainers', 'Trainers'], ['checkins', 'Check-ins']]
@@ -115,7 +116,8 @@ function Members({ v, filter, setFilter, today, onPhone }) {
     <Section footer={gt('Active = a visit or workout in the last 7 days · Slipping 8–14 days · At risk 15–30 · Lost over 30. The owner, admins and trainers are not counted.')}>
       {!list.length && <Row title={needle ? gt('Nobody by that name here') : gt('Nobody in this group')} />}
       {shown.map(m => {
-        const wa = waLink(m.phone, waText(m, today))
+        const b = gymBrand()
+        const wa = waLink(m.phone, waText(m, today, b?.name), b?.cc)
         return <Row key={m.id} icon="person" iconTint={m.status === 'active' ? 'var(--acc)' : m.status === 'slipping' ? 'var(--orange)' : m.status === 'at-risk' ? 'var(--red)' : 'var(--grey)'}
           title={<>{m.name} {filter === 'all' && <span className={'gym-st ' + m.status}>{gt(STATUS_LABEL[m.status])}</span>}</>} subtitle={memberLine(m, today)}>
           {wa ? <a className="gym-act wa" href={wa} target="_blank" rel="noopener noreferrer">{gt('WhatsApp')}</a>
@@ -240,6 +242,7 @@ export default function GymDashboard() {
       <div style={{ flex: 1, marginInlineStart: 12 }}><h1>{gt('Gym')}</h1>
         <div className="sub">{v ? gt('{0} · {1} members', fmtDate(isoDaysAgo(0, today), true), v.members.length) : ' '}</div></div>
       <button className="iconbtn" onClick={() => load(true)} aria-label={gt('Refresh')}><Icon name="reset" /></button>
+      <button className="iconbtn" style={{ marginInlineStart: 8 }} onClick={() => nav('/gym/settings')} aria-label={gt('Gym settings')}><Icon name="gear" /></button>
     </div>
     <Segmented className="gym-tabs" options={TABS.map(([value, label]) => ({ value, label: gt(label) }))} value={tab} onChange={pickTab} />
     <div style={{ height: 14 }} />

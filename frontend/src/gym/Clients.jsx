@@ -18,7 +18,14 @@ const lineSub = c => {
 }
 
 /** The line under a client's name, with what their PT package needs first (M3). */
-const sub = c => c.alerts.length ? <><span className="gym-alert">{c.alerts.map(a => a.text).join(' · ')}</span>{' · ' + lineSub(c)}</> : lineSub(c)
+const sub = c => {
+  const bad = c.alerts.filter(a => !a.good), good = c.alerts.filter(a => a.good)
+  return <>
+    {bad.length > 0 && <><span className="gym-alert">{bad.map(a => a.text).join(' · ')}</span>{' · '}</>}
+    {good.length > 0 && <><span className="gym-good">{good.map(a => a.text).join(' · ')}</span>{' · '}</>}
+    {lineSub(c)}
+  </>
+}
 
 // A trainer's clients: the members who share their training with them, the ones who need something first.
 export default function Clients() {
@@ -54,7 +61,7 @@ export default function Clients() {
 
         {!lines.length && <div className="card small muted">{gt('No clients yet. Give your members your code {0}.', d.code)}</div>}
 
-        {slipping.length > 0 && <Section title={gt('Need attention')} footer={gt('No workout in the last {0} days, or their PT package: a flagged session, 2 or fewer left, expiring within a week, or just finished.', ATTENTION_DAYS)}>
+        {slipping.length > 0 && <Section title={gt('Need attention')} footer={gt('No workout in the last {0} days, 2 planned sessions missed in a row, a stalled lift, or their PT package: a flagged session, 2 or fewer left, expiring within a week, or just finished.', ATTENTION_DAYS)}>
           {slipping.map(c => <Row key={c.id} icon={c.alerts.some(a => a.kind === 'flagged') ? 'flag' : 'warning'} iconTint={c.alerts.some(a => a.kind === 'flagged') ? 'var(--red)' : 'var(--orange)'}
             title={c.name} subtitle={sub(c)} value={weightLabel(c)} accessory="chevron" onClick={() => nav('/gym/clients/' + encodeURIComponent(c.id))} />)}
         </Section>}

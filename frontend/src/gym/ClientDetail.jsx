@@ -6,10 +6,11 @@ import Icon from '../components/Icon.jsx'
 import { confirmSheet } from '../sheets.jsx'
 import { fmtDate, fmtNum } from '../lib/format.js'
 import { EXIDX } from '../lib/exercises.js'
-import { gt, getClient, removeClient, removeProgramme, clientLine, agoLabel, isoDaysAgo, localDay, visitsThisMonth } from './api.js'
+import { gt, getClient, removeClient, removeProgramme, clientLine, agoLabel, isoDaysAgo, localDay, visitsThisMonth, missedInRow } from './api.js'
 import { compareWorkout, monthStats } from './adherence.js'
 import AssignProgramme, { WEEK } from './AssignProgramme.jsx'
 import { TrainerPt } from './PtPackages.jsx'
+import { TrainerDiet, TrainerNotes } from './Coaching.jsx'
 import './gym.css'
 
 const cap = s => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
@@ -96,6 +97,10 @@ export default function ClientDetail() {
   const firstInMonth = weights.find(b => b.d >= monthAgo)
   const change = lastW && firstInMonth && lastW !== firstInMonth ? lastW.w - firstInMonth.w : null
   const lastM = d.measurements[d.measurements.length - 1]
+  const exName = id => cap(names[id] || EXIDX[id]?.n || gt('Exercise'))
+  const missed = d.programme ? missedInRow({ programme: { start: d.programme.start, days: Object.keys(d.programme.week || {}) }, recent: d.workouts.map(w => w.d) }) : null
+  const lifts = d.lifts || { prs: [], stalls: [] }
+  const anyAlert = missed || lifts.prs.length || lifts.stalls.length
   const prog = d.programme
   const month = prog ? monthStats(d.workouts, prog) : null
   const monthName = new Date().toLocaleDateString(undefined, { month: 'long' })
@@ -114,6 +119,14 @@ export default function ClientDetail() {
       <div className="tile"><div className="l">{gt('Visits this month')}</div><div className="v">{visitsThisMonth(d.visits)}</div></div>
       <div className="tile"><div className="l">{gt('Body weight')}</div><div className="v" style={{ fontSize: '1rem' }}>{lastW ? fmtNum(lastW.w) + ' ' + d.unit : '–'}</div></div>
     </div>
+
+    {anyAlert ? <Section title={gt('Alerts')} footer={gt('A stalled lift: 3 sessions without beating its best (weight × reps, as an estimated one-rep max).')}>
+      {missed && <Row icon="warning" iconTint="var(--orange)" title={gt('Missed 2 planned sessions')} subtitle={missed.map(x => fmtDate(x, true)).join(', ') + ' · ' + gt('nothing since')} />}
+      {lifts.stalls.map(s => <Row key={'s' + s.id} icon="chartLineSlash" iconTint="var(--orange)" title={gt('{0} stalled', exName(s.id))}
+        subtitle={gt('No progress since {0} · best {1} {2} × {3}', fmtDate(s.since, true), fmtNum(s.best.w), d.unit, s.best.r)} />)}
+      {lifts.prs.map(p => <Row key={'p' + p.id} icon="trophy" iconTint="var(--green)" title={gt('New PR: {0}', exName(p.id))}
+        subtitle={gt('{0} {1} × {2} on {3}', fmtNum(p.w), d.unit, p.r, fmtDate(p.d, true))} />)}
+    </Section> : null}
 
     <TrainerPt client={d.client} pt={d.pt} onChange={r => setD(x => ({ ...x, pt: { packages: r.packages } }))} />
 
@@ -141,6 +154,9 @@ export default function ClientDetail() {
     </> : <Section footer={gt('Pick routines from your own Plan and the days for each. They land in {0}’s plan, and you see assigned vs done here.', d.client.name)}>
       <Row icon="plusCircle" iconTint="var(--acc)" title={gt('Assign programme')} accessory="chevron" onClick={assign} />
     </Section>}
+
+    <TrainerDiet client={d.client} diet={d.diet} onChange={diet => setD(x => ({ ...x, diet }))} />
+    <TrainerNotes client={d.client} notes={d.notes} onChange={notes => setD(x => ({ ...x, notes }))} />
 
     <Section title={gt('Workouts')} footer={d.workouts.length > 30 ? gt('The latest 30 of {0}.', d.workouts.length) : null}>
       {!d.workouts.length && <Row title={gt('No workouts logged yet')} />}
