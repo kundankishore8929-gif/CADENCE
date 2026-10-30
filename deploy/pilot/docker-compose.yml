@@ -1,0 +1,54 @@
+# CADENCE for one gym: the API, the web app and Caddy in front for HTTPS (automatic Let's Encrypt).
+# Built on the server from this repository; nothing is pulled from openGym's image registry.
+#
+#   cp env.example .env      # then set DOMAIN, RP_ID, ORIGIN, RP_NAME
+#   docker compose up -d --build
+#
+# Only Caddy is reachable from outside (ports 80 and 443). See README.md in this folder.
+name: cadence
+services:
+  api:
+    build:
+      context: ../../api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - PORT=3000
+      - DATA_DIR=/data
+      # The API is reachable only through the web container, which is reachable only through Caddy.
+      - TRUST_PROXY=1
+    volumes:
+      - ./data:/data          # every account, workout, PT package and check-in: BACK THIS UP (backup.sh)
+
+  web:
+    build:
+      context: ../..
+      dockerfile: web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      - NGINX_PORT=80
+      - BACKEND=api
+      - PORT=3000
+      - RESOLVER=127.0.0.11
+      # The visitor's own address, which Caddy puts in X-Real-IP (Caddyfile). Without it every
+      # member reaches the API from Caddy's address, and the sign-in limits would be shared by
+      # the whole gym. Safe only because this container is not published to the outside.
+      - CF_CONNECTING_IP=$$http_x_real_ip
+      - MEDIA_UPLOAD_MAX=48m
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-data:/data    # the HTTPS certificate
+      - ./caddy-config:/config

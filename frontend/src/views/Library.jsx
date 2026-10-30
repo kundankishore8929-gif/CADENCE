@@ -15,6 +15,7 @@ import { Button } from '../components/ui.jsx'
 import { tappable, useRevealActiveChip } from '../lib/use-sheet-keyboard.js'
 import { useAutoMore } from '../lib/use-auto-more.js'
 import { isFav, sortFavouritesFirst, sortYoursFirst, usageOf } from '../lib/favourites.js'
+import { BRAND } from '../gym/brand.js'
 
 export default function Library() {
   const nav = useNavigate()
@@ -70,7 +71,8 @@ export default function Library() {
   return <>
     <div className="hdr lib-hdr"><div><h1>{t('Exercises')}</h1></div>
       <Button size="sm" variant="tinted" icon="figureStrength" onClick={() => nav('/muscles')}>{t('By muscle')}</Button>
-      <div className="sub lib-count">{ownCount
+      {/* CADENCE shows no exercise animations (gym/brand.js exerciseMedia): it counts exercises. */}
+      <div className="sub lib-count">{!BRAND.exerciseMedia ? t('{0} exercises', EXDB.length + ownCount) : ownCount
         ? tn('{1} animated exercises + 1 of your own', '{1} animated exercises + {0} of your own', ownCount, EXDB.length)
         : t('{0} exercises with animations', EXDB.length)}</div>
     </div>

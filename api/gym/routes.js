@@ -37,7 +37,8 @@ import { liftAlerts } from './lifts.js';
 // What a trainer never gets from a member's workouts and measurements, at any depth: photos and
 // videos (`media`), the member's own notes, and the sync bookkeeping (`_ts`, `_f`, …).
 const PRIVATE = new Set(['media', 'note', 'notePin', 'url']);
-function withoutPrivate(v) {
+/** A member's records without photos, videos, their notes and sync bookkeeping: for trainers, and for gym staff in the admin page (M6). */
+export function withoutPrivate(v) {
   if (Array.isArray(v)) return v.map(withoutPrivate);
   if (!v || typeof v !== 'object') return v;
   const out = {};

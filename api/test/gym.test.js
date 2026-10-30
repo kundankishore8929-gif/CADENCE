@@ -732,3 +732,15 @@ test('brand is public and the owner\'s; a diet and notes are the client\'s train
   const saved = JSON.parse(fs.readFileSync(path.join(s.dataDir, 'gym.json'), 'utf8'));
   assert.equal(saved.notes.length, 0, 'and Aman\'s notes on her are gone');
 });
+
+/* ---------- M6: gym staff (admins) never read a member's notes ---------- */
+
+test('the admin page gets a member\'s workouts without their notes, photos or videos', async t => {
+  const s = await startServer(t);
+  const r = await s.get(OWNER, `/api/admin/user?id=${PRIYA}`);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.workouts[0].name, 'Push');
+  assert.equal(r.body.workouts[0].entries[0].sets[0].w, 40);
+  assert.ok(!JSON.stringify(r.body).includes('private note'));
+  assert.ok(!JSON.stringify(r.body.workouts).includes('abc'), 'no photo refs');
+});

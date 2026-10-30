@@ -19,6 +19,7 @@
 //
 // Not in the phone app: it has no service worker, and its media comes from the CDN.
 import { EXIDX, imgSrc, gifSrc, isCustomEx, figureOf } from './exercises.js'
+import { BRAND } from '../gym/brand.js'
 
 // The worker's media cache, public/sw.js MEDIA. Duplicated because the worker is not bundled;
 // sw-media.test.js pins the two together.
@@ -110,7 +111,8 @@ export async function prefetchMedia(urls, { cache, fetchImpl = globalThis.fetch,
  */
 export function startMediaPrefetch(store, { delay = PREFETCH_DELAY_MS, win = globalThis, nav = win?.navigator, cachesApi = globalThis.caches } = {}) {
   const sw = nav?.serviceWorker
-  if (!sw || !cachesApi) return () => {}
+  // CADENCE ships none of the catalogue's media (gym/brand.js exerciseMedia): nothing to fetch ahead.
+  if (!sw || !cachesApi || !BRAND.exerciseMedia) return () => {}
   let timer = null
   let running = false
   // The URL set the last complete run covered; the same set again has nothing left to fetch.

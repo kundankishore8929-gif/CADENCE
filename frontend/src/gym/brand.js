@@ -21,6 +21,10 @@ export const BRAND = {
   // openGym's own links on the About page: its APK download, its App Store rating and Duarte's
   // donation pages. They are his, not ours, so this fork leaves them out.
   openGymLinks: false,
+  // openGym's exercise stills and animations are licensed from Gym visual for openGym only
+  // (NOTICE.md, "Exercise media"): a commercial fork may not show them. CADENCE shows each
+  // exercise's muscles instead (gym/ExerciseMap.jsx, MIT-licensed outlines) until it has its own.
+  exerciseMedia: false,
 }
 
 // openGym's interface text names the app "openGym" in about forty strings, in every language.

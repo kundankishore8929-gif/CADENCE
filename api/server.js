@@ -16,7 +16,7 @@ import webpush from 'web-push';
 import * as coachConfig from './coach/config.js';
 import * as coachJobs from './coach/jobs.js';
 import { coachRoutes } from './coach/routes.js';
-import { gymRoutes } from './gym/routes.js';
+import { gymRoutes, withoutPrivate } from './gym/routes.js';
 import { startCadence } from './coach/cadence.js';
 import { startWarmup } from './coach/warmup.js';
 import { dayReminderPush, nudgePush, restTimerPush, testPush } from './push-messages.js';
@@ -2764,10 +2764,11 @@ const routes = {
       unit: S.unit || 'kg',
       lastSync: lastSyncOf(u, S),
       routines: records(S.routines).map(r => ({ id: r.id, name: r.name, emoji: r.emoji, count: records(r.ex).length })),
-      bodyweight: records(S.bodyweight),
+      // CADENCE: the admins are the gym's staff, so a member's notes stay theirs too (gym/routes.js).
+      bodyweight: withoutPrivate(records(S.bodyweight)),
       // records() already copied, so this reverse is ours: newest first for display. A workout's
       // photos and videos are the owner's own: the admin view gets no refs to them.
-      workouts: records(S.workouts).reverse().map(({ media, ...w }) => w)
+      workouts: withoutPrivate(records(S.workouts).reverse())
     });
   },
 

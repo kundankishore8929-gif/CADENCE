@@ -75,9 +75,9 @@ COPY web/nginx.conf.template /etc/nginx/templates/default.conf.template
 # before the template rendering at 20.
 COPY --chmod=755 web/05-check-base-path.sh /docker-entrypoint.d/
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
-# The exercise stills and animations, 180 px, licensed from Gym visual for openGym only: see
-# catalogue/media/NOTICE.md. They ship inside the image; nothing is downloaded at start-up.
-COPY catalogue/media/ /usr/share/nginx/html/exercise-media/
+# CADENCE: openGym's exercise stills and animations (catalogue/media/) are licensed from Gym visual
+# for openGym only (NOTICE.md), so this image does not carry them. The app shows each exercise's
+# muscles in their place (frontend/src/gym/ExerciseMap.jsx).
 
 # Set Default ENVs for nginx
 ENV NGINX_PORT=80

@@ -18,6 +18,7 @@ vi.mock('./brand.js', async (importOriginal) => {
       source: `https://github.com/${REPO}`,
       releases: `https://github.com/${REPO}/releases/latest`,
       openGymLinks: true,
+      exerciseMedia: true,
     },
     rebrand: s => s,
   }

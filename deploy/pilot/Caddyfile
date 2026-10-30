@@ -1,0 +1,9 @@
+# HTTPS for the gym's address, with a certificate from Let's Encrypt that Caddy renews itself.
+# DOMAIN comes from .env (docker-compose.yml passes it in).
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:80 {
+		# The visitor's own address, set here so nobody can send a fake one (docker-compose.yml).
+		header_up X-Real-IP {remote_host}
+	}
+}

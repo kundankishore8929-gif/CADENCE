@@ -112,3 +112,8 @@ a.gym-act { display: inline-flex; align-items: center; text-decoration: none; }
 .gym-targets label small { color: var(--label-3); }
 .gym-targets .field { width: 100%; min-width: 0; background: var(--surface-3); border-radius: 10px; padding: 8px 10px; }
 .gym-good { color: var(--green); font-weight: 600; }
+
+/* The muscles in place of an exercise picture (M6, ExerciseMap.jsx). */
+.exmedia.gym-exmap { display: flex; align-items: center; justify-content: center; padding: 10px 12px; background: var(--surface-2); }
+.exmedia.gym-exmap .bodymap { width: 100%; max-width: 360px; }
+.exmedia.gym-exmap.mini .bodymap { max-width: 180px; }
