@@ -17,6 +17,8 @@
  *     sessions; the member sees every count and can flag one; the front desk settles flags;
  *   - the desk screen (M3, desk.js) holds a desk link's key and nothing else; any signed-in
  *     member checks in by scanning its code. Visits are each member's own, and their trainer's.
+ *   - the owner's dashboard (M4, dashboard.js) is for admins: every member's status, the trainers'
+ *     numbers, the check-ins. Members' phone numbers (for a WhatsApp message) are seen by admins only.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +26,7 @@ import * as G from './store.js';
 import { buildProgramme, applyProgramme, removeProgramme, releaseProgramme } from './programme.js';
 import * as PT from './pt.js';
 import * as D from './desk.js';
+import { dashboard } from './dashboard.js';
 
 // What a trainer never gets from a member's workouts and measurements, at any depth: photos and
 // videos (`media`), the member's own notes, and the sync bookkeeping (`_ts`, `_f`, …).
@@ -99,7 +102,7 @@ const PT_ERROR = {
 const VISIT_DAYS = 62;
 const shortDay = d => new Date(d + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-export function gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, audit, users, readState, records, dataDir, atomicWrite, writeStateFor, sendPush }) {
+export function gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, audit, users, readState, records, dataDir, atomicWrite, writeStateFor, sendPush, stateFile, livePresence }) {
   const file = path.join(dataDir, 'gym.json');
   let gym = null;
   const load = () => {
@@ -132,6 +135,19 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, 
   const notify = (uid, payload) => { Promise.resolve().then(() => sendPush?.(uid, payload)).catch(() => {}); };
   /** The member's trainer, or the front desk: who may add a package for `member`. */
   const mayManage = (g, me, member) => isAdmin(me) || !!(G.trainerOf(g, me.id) && G.clientsOf(g, me.id).some(l => l.member === member));
+  // Each member's client summary, read again only when their file changed: the dashboard reads
+  // every member at once (M4).
+  const summaries = new Map();
+  const summaryOf = uid => {
+    let st = null;
+    try { st = stateFile && fs.statSync(stateFile(uid)); } catch { /* no state yet */ }
+    if (!st) { summaries.delete(uid); return clientSummary(null, records); }
+    const had = summaries.get(uid);
+    if (had && had.mtimeMs === st.mtimeMs && had.size === st.size && had.day === new Date().toISOString().slice(0, 10)) return had.s;
+    const s = clientSummary(readState(uid), records);
+    summaries.set(uid, { mtimeMs: st.mtimeMs, size: st.size, day: new Date().toISOString().slice(0, 10), s });
+    return s;
+  };
 
   return {
     /* ---------- everyone: where do I stand ---------- */
@@ -264,7 +280,7 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, 
       if (!u) return json(res, 404, { error: 'no such user' });
       const g = load();
       const l = G.linkOf(g, u.id);
-      json(res, 200, { member: { id: u.id, name: u.name }, trainer: l ? { id: l.trainer, name: nameOf(l.trainer) } : null, ...ptFor(g, u.id, me.id, true) });
+      json(res, 200, { member: { id: u.id, name: u.name }, trainer: l ? { id: l.trainer, name: nameOf(l.trainer) } : null, phone: g.phones[u.id] || null, ...ptFor(g, u.id, me.id, true) });
     },
 
     'POST /api/gym/pt/package': async (req, res) => {
@@ -408,6 +424,29 @@ export function gymRoutes({ json, readBody, readSession, requireAdmin, isAdmin, 
     'GET /api/gym/visits': async (req, res) => {
       const me = signedIn(req, res); if (!me) return;
       json(res, 200, { visits: visitsOf(me.id) });
+    },
+
+    /* ---------- the owner's dashboard (M4) ---------- */
+    // `since` = the owner's local midnight, for "checked in today".
+    'GET /api/gym/dashboard': async (req, res) => {
+      if (!requireAdmin(req, res)) return;
+      const since = Number(new URL(req.url, 'http://x').searchParams.get('since'));
+      json(res, 200, dashboard({ g: load(), users: users(), summaryOf, live: uid => livePresence?.(uid) || null, checkins, isAdmin, since }));
+    },
+
+    // A member's phone number, for a WhatsApp message from the front desk. Empty clears it.
+    'POST /api/gym/phone': async (req, res) => {
+      const admin = requireAdmin(req, res); if (!admin) return;
+      const body = await readBody(req);
+      const u = userById(String(body.member || ''));
+      if (!u) return json(res, 404, { error: 'no such user' });
+      const phone = typeof body.phone === 'string' ? body.phone.replace(/[\s().-]/g, '') : '';
+      if (phone && !G.PHONE_RE.test(phone)) return json(res, 400, { error: 'a phone number is 8 to 15 digits, with + and the country code if not Indian', code: 'bad-phone' });
+      const g = load();
+      if (phone) g.phones[u.id] = phone; else delete g.phones[u.id];
+      save();
+      audit(req, 'gym.phone', { user: admin, target: u, msg: phone ? 'set' : 'cleared' });
+      json(res, 200, { phone: phone || null });
     },
 
     /* ---------- admin: who trains here ---------- */

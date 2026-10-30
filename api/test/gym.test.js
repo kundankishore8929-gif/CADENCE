@@ -16,6 +16,7 @@ import { clientSummary, clientDetail } from '../gym/routes.js';
 import * as P from '../gym/programme.js';
 import * as PT from '../gym/pt.js';
 import * as D from '../gym/desk.js';
+import { dashboard } from '../gym/dashboard.js';
 
 const records = v => (Array.isArray(v) ? v.filter(x => !!x && typeof x === 'object' && !Array.isArray(x)) : []);
 
@@ -216,9 +217,11 @@ test('a member who stops sharing is gone from the trainer at once; so is everyon
   assert.equal((await s.get(AMAN, '/api/gym/clients')).status, 403);
   assert.equal((await s.get(PRIYA, '/api/gym/me')).body.myTrainer, null);
 
-  // What is on disk is roles, links, packages and the desk: no training data is ever copied there.
+  // What is on disk is roles, links, packages, the desk, phone numbers and ended links: no
+  // training data is ever copied there. The three ended links are kept for retention (M4).
   const saved = JSON.parse(fs.readFileSync(path.join(s.dataDir, 'gym.json'), 'utf8'));
-  assert.deepEqual(Object.keys(saved).sort(), ['desk', 'links', 'packages', 'programmes', 'trainers', 'v']);
+  assert.deepEqual(Object.keys(saved).sort(), ['desk', 'links', 'packages', 'pastLinks', 'phones', 'programmes', 'trainers', 'v']);
+  assert.deepEqual(saved.pastLinks.map(l => l.member), [PRIYA, RAHUL, PRIYA]);
 });
 
 test('a deleted member drops out of the trainer list', async t => {
@@ -569,4 +572,68 @@ test('desk: the admin makes a link, the screen shows the code, members check in 
   assert.equal((await deskCode({ key })).status, 404);
   await s.post(OWNER, '/api/gym/desk', { on: false });
   assert.equal((await s.get(OWNER, '/api/gym/desk')).body.desk, null);
+});
+
+/* ---------- M4: the owner's dashboard (dashboard.js) ---------- */
+
+test('the dashboard has every member with their trainer, last visit and PT, and the raw times to count', () => {
+  const now = Date.parse('2026-10-30T12:00:00Z');
+  const g = G.emptyGym();
+  G.makeTrainer(g, { id: 't1', name: 'Aman' });
+  G.link(g, 'm1', 'AMAN01', new Date('2026-09-01T10:00:00Z'));
+  G.link(g, 'm2', 'AMAN01', new Date('2026-09-01T10:00:00Z'));
+  G.removeClient(g, 't1', 'm2', new Date('2026-10-10T10:00:00Z'));
+  g.phones.m1 = '+919876543210';
+  const pkg = PT.addPackage(g, { member: 'm1', trainer: 't1', total: 10, start: '2026-10-01' }, 't1', new Date(now)).package;
+  PT.countSession(g, 'm1', '2026-10-29', 't1', { now: new Date(now) });
+  PT.flagSession(g, pkg.sessions[0].id, 'm1', new Date(now));
+  const visits = [{ m: 'm1', at: now - 3600e3 }, { m: 'm1', at: now - 5 * 86400e3 }, { m: 'm3', at: now - 50 * 86400e3 }];
+  const checkins = { since: (from, to) => visits.filter(v => v.at >= from && v.at <= to) };
+  const users = [
+    { id: 't1', name: 'Aman', created: '2026-01-01T00:00:00Z' },
+    { id: 'm1', name: 'Priya', created: '2026-01-01T00:00:00Z' },
+    { id: 'm2', name: 'Rahul', created: '2026-01-01T00:00:00Z' },
+    { id: 'm3', name: 'Neha', created: '2026-01-01T00:00:00Z' },
+    { id: 'gone', name: 'Off', disabled: true },
+    { id: 'own', name: 'Kundan', owner: true, admin: true },
+  ];
+  const d = dashboard({
+    g, users, checkins, now, since: now - 4 * 3600e3,
+    summaryOf: id => ({ lastWorkout: id === 'm1' ? '2026-10-28' : null, recent: id === 'm1' ? ['2026-10-28'] : [] }),
+    live: id => (id === 'm1' ? { name: 'Push', startedAt: now - 600e3, exIdx: 2 } : null),
+    isAdmin: u => !!u.admin,
+  });
+  assert.deepEqual(d.members.map(m => [m.id, m.role]), [['t1', 'trainer'], ['m1', null], ['m2', null], ['m3', null], ['own', 'owner']]);
+  const priya = d.members.find(m => m.id === 'm1');
+  assert.deepEqual([priya.trainer.name, priya.lastVisit, priya.phone, priya.pt.left, priya.live], ['Aman', now - 3600e3, '+919876543210', 9, { name: 'Push', startedAt: now - 600e3 }]);
+  assert.equal(d.members.find(m => m.id === 'm3').lastVisit, now - 50 * 86400e3, 'a visit 50 days back still dates the last one');
+  assert.deepEqual(d.trainers[0].clients.map(c => c.member), ['m1']);
+  assert.deepEqual(d.trainers[0].past.map(c => [c.member, c.ended]), [['m2', '2026-10-10T10:00:00.000Z']]);
+  assert.deepEqual(d.sessions.map(x => [x.d, x.by, x.member]), [['2026-10-29', 't1', 'm1']]);
+  assert.deepEqual(d.flagged.map(x => [x.memberName, x.by.name]), [['Priya', 'Aman']]);
+  assert.deepEqual(d.today, [{ m: 'm1', at: now - 3600e3 }]);
+  assert.deepEqual(d.checkins, [now - 3600e3, now - 5 * 86400e3], 'the chart gets 35 days');
+});
+
+test('dashboard and phone numbers are for admins; a phone number is digits with an optional +', async t => {
+  const s = await startServer(t);
+  await s.post(OWNER, '/api/gym/trainer', { id: AMAN, trainer: true });
+  await s.post(PRIYA, '/api/gym/link', { code: 'AMAN01', consent: true });
+  assert.equal((await s.get(AMAN, '/api/gym/dashboard')).status, 403);
+  assert.equal((await s.post(AMAN, '/api/gym/phone', { member: PRIYA, phone: '9876543210' })).status, 403);
+  assert.equal((await s.post(OWNER, '/api/gym/phone', { member: PRIYA, phone: 'call me' })).body.code, 'bad-phone');
+  assert.equal((await s.post(OWNER, '/api/gym/phone', { member: PRIYA, phone: '+91 98765-43210' })).body.phone, '+919876543210');
+  assert.equal((await s.get(OWNER, `/api/gym/pt?member=${PRIYA}`)).body.phone, '+919876543210');
+
+  const d = (await s.get(OWNER, `/api/gym/dashboard?since=${Date.now() - 3600e3}`)).body;
+  const priya = d.members.find(m => m.id === PRIYA);
+  assert.deepEqual([priya.trainer.name, priya.phone, priya.lastWorkout], ['Aman Verma', '+919876543210', '2026-10-28']);
+  assert.deepEqual(d.trainers.map(x => [x.code, x.clients.length]), [['AMAN01', 1]]);
+  assert.ok(!JSON.stringify(d).includes('private note'), 'a member\'s notes never reach the dashboard');
+  // The trainer never sees a client's phone number.
+  assert.ok(!JSON.stringify((await s.get(AMAN, `/api/gym/client?id=${PRIYA}`)).body).includes('9876543210'));
+
+  assert.equal((await s.post(OWNER, '/api/gym/phone', { member: PRIYA, phone: '' })).body.phone, null);
+  await s.post(PRIYA, '/api/gym/unlink');
+  assert.deepEqual((await s.get(OWNER, '/api/gym/dashboard')).body.trainers[0].past.map(x => x.member), [PRIYA]);
 });

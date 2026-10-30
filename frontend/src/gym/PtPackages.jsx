@@ -8,6 +8,7 @@ import {
   gt, gymError, addPackage, removePackage, countSession, undoSession, flagSession, keepSession, adminPt,
   currentPackage, packageLine, isoDaysAgo, localDay, onThisCalendar,
 } from './api.js'
+import { PhoneSheet } from './Phone.jsx'
 import './gym.css'
 
 // PT session packages (M3, api/gym/pt.js): what the trainer, the member and the front desk see.
@@ -247,6 +248,7 @@ export function AdminPt({ user }) {
   useEffect(() => { adminPt(user.id).then(setData).catch(() => setData(null)) }, [user.id])
   const onChange = r => setData(d => ({ ...d, packages: r.packages }))
   if (!data || user.disabled) return null
+  const phone = () => openSheet(close => <PhoneSheet member={user} phone={data.phone} close={close} onDone={p => setData(d => ({ ...d, phone: p }))} />)
   const packages = onThisCalendar(data.packages)
   const p = currentPackage(packages)
   const flagged = packages.flatMap(x => x.sessions).filter(s => s.flagged && !s.kept)
@@ -272,6 +274,11 @@ export function AdminPt({ user }) {
         <button type="button" className="gym-act danger" onClick={() => remove(s)}>Remove</button>
       </div>
     </div>)}
+    <div className="row between" style={{ padding: '8px 2px', borderBottom: 'var(--hair) solid var(--sep)', gap: 8 }}>
+      <div><div className="small" style={{ fontWeight: 600 }}>Phone (WhatsApp)</div>
+        <div className="dim" style={{ fontSize: '.72rem' }}>{data.phone || 'none yet'} · seen by admins only, never by trainers</div></div>
+      <button type="button" className="gym-act" onClick={phone}>{data.phone ? 'Change' : 'Add'}</button>
+    </div>
     <button className="btn" style={{ margin: '12px 0 4px' }} onClick={add}>{p && isLive(p) ? 'Add next PT package' : 'Add PT package'}</button>
     <div className="adm-hint">Sessions only, no payments. The member’s trainer counts each session; the member can flag one within 48 hours, and flags show here.</div>
   </>

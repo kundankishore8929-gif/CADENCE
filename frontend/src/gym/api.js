@@ -37,6 +37,15 @@ export const getDesk = () => api('/api/gym/desk')
 export const setDesk = on => post('/api/gym/desk', { on })
 export const deskCode = (key, since) => post('/api/gym/desk/code', { key, since })
 export const checkIn = code => post('/api/gym/checkin', { code })
+// The owner's dashboard (M4). Home's card and the Gym screen share one answer for 30 seconds.
+let dash = null
+export function gymDashboard(fresh = false) {
+  const midnight = new Date(); midnight.setHours(0, 0, 0, 0)
+  if (fresh || !dash || Date.now() - dash.at > 30000) dash = { at: Date.now(), p: api('/api/gym/dashboard?since=' + midnight.getTime()) }
+  dash.p.catch(() => { dash = null })
+  return dash.p
+}
+export const setPhone = (member, phone) => post('/api/gym/phone', { member, phone })
 
 // What the server answers for a refused link, in words.
 export function linkError(e, code) {
@@ -69,6 +78,7 @@ const GYM_ERRORS = {
   'bad-expiry': 'The expiry is before the start.',
   'stale-code': 'That code has changed. Scan the screen again.',
   'desk-off': 'Check-in at the desk is off at this gym.',
+  'bad-phone': 'That is not a phone number. Use 10 digits, or + and the country code.',
 }
 export function gymError(e) {
   const c = e?.data?.code

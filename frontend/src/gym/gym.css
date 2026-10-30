@@ -54,3 +54,38 @@
 .gym-desk-msg { color: #ffb340 !important; font-weight: 600; }
 .gym-desk-count { display: flex; justify-content: center; align-items: baseline; gap: 10px; font-size: clamp(16px, 2.4vh, 24px); color: #c9cbc4; }
 .gym-desk-count b { font-size: clamp(28px, 5vh, 52px); color: #c8f135; font-variant-numeric: tabular-nums; }
+
+/* The owner's Gym screen (M4, GymDashboard.jsx). */
+.gym-filter { padding: 0 0 10px; }
+.gym-filter .gym-day { flex: 0 1 auto; padding: 0 12px; white-space: nowrap; }
+.gym-filter .gym-day b { margin-inline-start: 4px; font-weight: 800; }
+.lrow.gym-search { padding-inline: 4px; margin-bottom: 6px; }
+.gym-acts { display: flex; gap: 6px; flex: none; }
+a.gym-act { display: inline-flex; align-items: center; text-decoration: none; }
+.gym-act.wa { color: var(--green); }
+.gym-code { font-size: .74em; font-weight: 700; color: var(--acc); margin-inline-start: 4px; }
+.gym-st.active { background: var(--surface-3); background: color-mix(in srgb, var(--acc) 22%, transparent); color: var(--acc); }
+.gym-st.slipping { background: var(--surface-3); background: color-mix(in srgb, var(--orange) 22%, transparent); color: var(--orange); }
+.gym-st.at-risk { background: var(--surface-3); background: color-mix(in srgb, var(--red) 20%, transparent); color: var(--red); }
+.gym-st.lost { background: var(--surface-3); color: var(--label-2); }
+.lrow-t .gym-st { margin-inline-start: 6px; vertical-align: 1px; }
+
+/* Visits per day: one bar a day, rounded at the top and standing on the baseline, a 2px gap
+   between bars; the tallest carries its number. */
+.gym-chart { padding: 14px 14px 6px; }
+.gym-bars { display: flex; align-items: flex-end; gap: 2px; height: 130px; border-bottom: 1px solid var(--sep); }
+.gym-bar-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+  position: relative; padding: 0; border: 0; background: none; border-radius: 4px 4px 0 0; cursor: pointer; min-width: 0; }
+.gym-bar-col.on { background: var(--surface-3); }
+.gym-bar-fill { display: block; width: 100%; background: var(--acc); border-radius: 4px 4px 0 0; }
+.gym-bar-top { position: absolute; top: -2px; font-size: 11px; font-weight: 700; color: var(--label); transform: translateY(-100%); }
+.gym-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--label-3); padding-top: 5px; }
+
+/* Busy hours: weekday × hour squares in openGym's heatmap shades (index.css .hm-c). */
+.gym-hm { padding: 12px 12px 4px; }
+.gym-hm-row { display: flex; gap: 3px; align-items: center; margin-bottom: 3px; }
+.gym-hm-row > span { flex: none; width: 30px; font-size: 10.5px; color: var(--label-2); }
+.gym-hm-head > span { flex: 1; width: auto; min-width: 0; overflow: visible; white-space: nowrap; font-size: 10px; color: var(--label-3); }
+.gym-hm-head > span:first-child { flex: none; width: 30px; }
+.gym-hm .gym-hm-row .hm-c { flex: 1; width: auto; min-width: 0; height: 16px; padding: 0; border: 0; cursor: pointer; }
+.gym-hm .hm-legend .hm-c { width: 11px; height: 11px; }

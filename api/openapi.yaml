@@ -3448,7 +3448,7 @@ paths:
       parameters:
         - { name: member, in: query, required: true, schema: { type: string } }
       responses:
-        '200': { description: '`member`, `trainer` and `packages` (oldest first, with their sessions).' }
+        '200': { description: '`member`, `trainer`, `phone` (admins only) and `packages` (oldest first, with their sessions).' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { description: No such user. }
@@ -3671,6 +3671,48 @@ paths:
       responses:
         '200': { description: '`visits`, epoch ms, oldest first.' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/gym/dashboard:
+    get:
+      tags: [gym]
+      operationId: gymDashboard
+      summary: "Admin: the owner's dashboard"
+      description: >-
+        Every member (role, trainer, last workout and the workout days of the last 40 days, last
+        check-in, programme days, PT summary, phone number, the workout running now), every trainer
+        with their clients and the sharings that ended (for retention), the PT sessions of the last
+        62 days, the flagged sessions, today's check-ins and the check-in times of the last 35 days.
+        Raw days and times: the app counts today, this month and the busy hours on its own calendar.
+      parameters:
+        - { name: since, in: query, required: false, schema: { type: integer }, description: "The caller's local midnight, epoch ms, for today's check-ins (clamped to the last 36 hours)." }
+      responses:
+        '200': { description: '`members`, `trainers`, `sessions`, `flagged`, `today`, `checkins`.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/gym/phone:
+    post:
+      tags: [gym]
+      operationId: gymPhone
+      summary: "Admin: a member's phone number"
+      description: >-
+        For a WhatsApp message from the front desk. Spaces, brackets and dashes are dropped; what
+        remains has to be 8 to 15 digits with an optional +. Empty clears it. Admins only ever see
+        it. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member, phone]
+              properties:
+                member: { type: string }
+                phone: { type: string }
+      responses:
+        '200': { description: The number as stored, or null. }
+        '400': { description: 'Not a phone number (`bad-phone`).' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: No such user. }
   /api/gym/trainers:
     get:
       tags: [gym]

@@ -21,6 +21,7 @@ import WeightRate from '../components/WeightRate.jsx'
 import { SeasonDeco } from '../components/Seasonal.jsx'
 import { BRAND } from '../gym/brand.js'
 import { ClientsCard } from '../gym/ClientsCard.jsx'
+import { GymTodayCard } from '../gym/GymTodayCard.jsx'
 import { CheckInCard } from '../gym/CheckInCard.jsx'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
@@ -114,6 +115,7 @@ export default function Home() {
       <button className="iconbtn" onClick={() => nav('/settings')} aria-label={trouble ? t('Settings') + ', ' + t('Connection problem') : t('Settings')}><Icon name="gear" />{trouble && <span className="tab-dot" aria-hidden="true" />}</button>
     </div>
 
+    <GymTodayCard />
     <ClientsCard />
 
     <div className="card">

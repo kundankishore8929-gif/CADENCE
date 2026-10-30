@@ -6,7 +6,9 @@
  *     links:    [{ member, trainer, since }],      // since = when the member said yes (consent)
  *     programmes: [{ member, trainer, start, assignedAt, week, routines }],   // M2, one per member
  *     packages: [{ id, member, trainer, total, start, expires, … sessions }],  // M3, pt.js
- *     desk: null | { key, secret, createdAt, by } }                           // M3, desk.js
+ *     desk: null | { key, secret, createdAt, by },                            // M3, desk.js
+ *     phones: { [memberId]: '+919876543210' },                                // M4, admins only
+ *     pastLinks: [{ member, trainer, since, ended }] }                        // M4, for retention
  *
  * A member shares with one trainer at a time. Only the member creates a link (by typing the
  * trainer's code and agreeing); the member or the trainer can end it, and ending a trainer's
@@ -21,9 +23,11 @@ import { normalizePackages } from './pt.js';
 import { normalizeDesk } from './desk.js';
 
 export const CODE_RE = /^[A-Z]{1,8}\d{2,3}$/;
+/** A phone number as stored: an optional + and 8 to 15 digits, nothing else. */
+export const PHONE_RE = /^\+?\d{8,15}$/;
 
 export function emptyGym() {
-  return { v: 1, trainers: [], links: [], programmes: [], packages: [], desk: null };
+  return { v: 1, trainers: [], links: [], programmes: [], packages: [], desk: null, phones: {}, pastLinks: [] };
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -53,6 +57,12 @@ export function normalize(doc) {
   // A member's PT packages outlive the sharing: they are the member's, not the link's.
   g.packages = normalizePackages(doc.packages, str);
   g.desk = normalizeDesk(doc.desk);
+  for (const [id, ph] of Object.entries(doc.phones && typeof doc.phones === 'object' ? doc.phones : {})) {
+    if (str(id) && typeof ph === 'string' && PHONE_RE.test(ph)) g.phones[id] = ph;
+  }
+  for (const l of Array.isArray(doc.pastLinks) ? doc.pastLinks : []) {
+    if (l && str(l.member) && str(l.trainer) && str(l.since) && str(l.ended)) g.pastLinks.push({ member: l.member, trainer: l.trainer, since: l.since, ended: l.ended });
+  }
   return g;
 }
 
@@ -104,9 +114,21 @@ export function makeTrainer(g, user, now = new Date()) {
   return t;
 }
 
+/**
+ * Remembers a sharing that ended, for the owner's client retention (M4). A year of them is kept,
+ * at most 5,000.
+ */
+const PAST_KEEP_MS = 400 * 86400e3;
+function endLinks(g, ended, now = new Date()) {
+  const at = now.toISOString(), cutoff = now.getTime() - PAST_KEEP_MS;
+  g.pastLinks = [...g.pastLinks, ...ended.map(l => ({ member: l.member, trainer: l.trainer, since: l.since || at, ended: at }))]
+    .filter(l => Date.parse(l.ended) >= cutoff).slice(-5000);
+}
+
 /** Takes the role away, and with it every member's link to them. Returns how many links ended. */
-export function dropTrainer(g, userId) {
+export function dropTrainer(g, userId, now = new Date()) {
   const before = g.links.length;
+  endLinks(g, g.links.filter(l => l.trainer === userId), now);
   g.trainers = g.trainers.filter(t => t.id !== userId);
   g.links = g.links.filter(l => l.trainer !== userId);
   g.programmes = g.programmes.filter(p => p.trainer !== userId);
@@ -130,16 +152,16 @@ export function link(g, memberId, code, now = new Date()) {
 }
 
 /** The member stops sharing. Returns the link that ended, or null if there was none. */
-export function unlink(g, memberId) {
+export function unlink(g, memberId, now = new Date()) {
   const had = linkOf(g, memberId);
-  if (had) { g.links = g.links.filter(l => l !== had); dropProgramme(g, memberId); }
+  if (had) { endLinks(g, [had], now); g.links = g.links.filter(l => l !== had); dropProgramme(g, memberId); }
   return had;
 }
 
 /** The trainer lets a client go. True when that member was theirs. */
-export function removeClient(g, trainerId, memberId) {
+export function removeClient(g, trainerId, memberId, now = new Date()) {
   const had = g.links.find(l => l.trainer === trainerId && l.member === memberId);
-  if (had) { g.links = g.links.filter(l => l !== had); dropProgramme(g, memberId); }
+  if (had) { endLinks(g, [had], now); g.links = g.links.filter(l => l !== had); dropProgramme(g, memberId); }
   return !!had;
 }
 
@@ -147,9 +169,13 @@ export function removeClient(g, trainerId, memberId) {
 export function prune(g, userIds) {
   const live = new Set(userIds);
   const t0 = g.trainers.length, l0 = g.links.length, p0 = g.programmes.length, k0 = g.packages.length;
+  const n0 = Object.keys(g.phones).length, x0 = g.pastLinks.length;
   g.trainers = g.trainers.filter(t => live.has(t.id));
   g.links = g.links.filter(l => live.has(l.member) && live.has(l.trainer) && g.trainers.some(t => t.id === l.trainer));
   g.programmes = g.programmes.filter(p => g.links.some(l => l.member === p.member && l.trainer === p.trainer));
   g.packages = g.packages.filter(p => live.has(p.member));
-  return g.trainers.length !== t0 || g.links.length !== l0 || g.programmes.length !== p0 || g.packages.length !== k0;
+  for (const id of Object.keys(g.phones)) if (!live.has(id)) delete g.phones[id];
+  g.pastLinks = g.pastLinks.filter(l => live.has(l.member) && live.has(l.trainer));
+  return g.trainers.length !== t0 || g.links.length !== l0 || g.programmes.length !== p0 || g.packages.length !== k0
+    || Object.keys(g.phones).length !== n0 || g.pastLinks.length !== x0;
 }
