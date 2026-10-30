@@ -48,3 +48,9 @@ assets/tee/
 assets/bmc-cover*
 # scripts/pdf/render-samples.mjs output (npm run pdf:check)
 frontend/pdf-samples/
+
+# CADENCE pilot server (deploy/pilot): the nightly backups hold every member's data; the certificate
+deploy/pilot/backups/
+deploy/pilot/caddy-data/
+deploy/pilot/caddy-config/
+deploy/pilot/backup.log
